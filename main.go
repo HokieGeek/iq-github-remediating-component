@@ -134,6 +134,7 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		log.Printf("ERROR: could not create IQ client: %v\n", err)
 		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not create IQ client: %v\n", err)), nil
 	}
+	log.Printf("TRACE: created client to IQ server as: %s:%s@%s\n", iqAuth[0], iqAuth[1], iqURL)
 
 	iqApp := req.QueryStringParameters["iq_app"]
 	remediations, err := evaluateComponents(iq, iqApp, manifests)
