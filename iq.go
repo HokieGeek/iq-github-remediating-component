@@ -24,6 +24,7 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 	remediations := make(map[githubPullRequestFile]map[int64]component)
 
 	for m, components := range manifests {
+		log.Printf("TRACE: evaluating manifest: %s\n", m.Filename)
 		remediated := make(map[int64]component)
 		for p, c := range components {
 			component, _ := asIQComponent(c)

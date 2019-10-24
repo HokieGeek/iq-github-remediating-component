@@ -118,7 +118,7 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		log.Printf("ERROR: could not get files from pull request: %v\n", err)
 		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not get files from pull request: %v\n", err)), nil
 	}
-	log.Printf("TRACE: Got %d files from full request\n", len(files))
+	log.Printf("TRACE: Got %d files from pull request\n", len(files))
 
 	manifests, err := findComponentsFromManifest(files)
 	if err != nil {
