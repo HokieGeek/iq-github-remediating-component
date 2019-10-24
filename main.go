@@ -20,7 +20,7 @@ func requestError(statusCode int) *events.APIGatewayProxyResponse {
 	}
 }
 
-func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event GithubPullRequest, resp *events.APIGatewayProxyResponse) {
+func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event githubPullRequest, resp *events.APIGatewayProxyResponse) {
 	eventType, err := getGitHubEventType(req.Headers)
 	if err != nil {
 		return event, requestError(http.StatusBadRequest)
@@ -50,7 +50,31 @@ func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event GithubPullRe
 	return event, nil
 }
 
-func addRemediationsToPR(token string, event GithubPullRequest, remediations map[string]string) *events.APIGatewayProxyResponse {
+func findComponentsFromManifest(files []githubPullRequestFile) ([]string, error) {
+	manifests := make([]githubPullRequestFile, 0)
+
+	for _, f := range files {
+		switch f.Filename {
+		case "package.json":
+			manifests = append(manifests, f)
+		}
+	}
+
+	log.Println("DEBUG: Changed manifests")
+
+	for _, m := range manifests {
+		log.Printf("DEBUG: %s: %s\n", m.Filename, m.Patch)
+	}
+
+	return nil, nil
+}
+
+func addRemediationsToPR(token string, event githubPullRequest, remediations map[string]string) *events.APIGatewayProxyResponse {
+
+	err := addPullRequestComment(event, token, "THINGY")
+	if err != nil {
+		return nil
+	}
 
 	return &events.APIGatewayProxyResponse{
 		StatusCode: http.StatusOK,
@@ -64,12 +88,20 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		return *resp, nil
 	}
 
-	log.Printf("Received Pull Request from: %s\n", event.Repository.URL)
+	log.Printf("Received Pull Request from: %s\n", event.Repository.HTMLURL)
 	log.Printf("DEBUG: %s\n", req.Body)
 
-	// TODO: parse event to determine if a manifest has been updated
-	components, err := findComponentsFromManifest(event)
+	token := req.QueryStringParameters["token"]
+
+	files, err := getPullRequestFiles(event, token)
 	if err != nil {
+		log.Printf("ERROR: could not get files from pull request: %v\n", err)
+		return *requestError(http.StatusInternalServerError), nil
+	}
+
+	components, err := findComponentsFromManifest(files)
+	if err != nil {
+		log.Printf("ERROR: could not read files to find manifest: %v\n", err)
 		return *requestError(http.StatusInternalServerError), nil
 	}
 
@@ -77,16 +109,17 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
 	iq, err := nexusiq.New(iqURL, iqAuth[0], iqAuth[1])
 	if err != nil {
+		log.Printf("ERROR: could not create IQ client: %v\n", err)
 		return *requestError(http.StatusInternalServerError), nil
 	}
 
 	iqApp := req.QueryStringParameters["iq_app"]
 	remediations, err := evaluateComponents(iq, iqApp, components)
 	if err != nil {
+		log.Printf("ERROR: could not evaluate components: %v\n", err)
 		return *requestError(http.StatusInternalServerError), nil
 	}
 
-	token := req.QueryStringParameters["token"]
 	return *addRemediationsToPR(token, event, remediations), nil
 }
 
