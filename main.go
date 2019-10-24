@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -13,6 +14,29 @@ import (
 
 	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
+
+type component struct {
+	format, group, name, version string
+}
+
+func (c component) purl() string {
+	switch c.format {
+	case "npm":
+		return fmt.Sprintf("pkg:npm/%s@%s", c.name, c.version)
+	// case "maven":
+	// 	return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", "group", c.name, c.version, "type")
+	// case "nuget":
+	// 	return fmt.Sprintf("pkg:nuget/%s@%s", c.name, c.version)
+	// case "golang":
+	// 	return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
+	// case "pypi":
+	// 	return fmt.Sprintf("pkg:pypi/%s@%s?extension=%s", c.name, c.version, "ext")
+	// case "ruby":
+	// 	return fmt.Sprintf("pkg:gem/%s@%s?platform=ruby", c.name, c.version)
+	default:
+		return ""
+	}
+}
 
 func requestError(statusCode int, message string) *events.APIGatewayProxyResponse {
 	body := message
@@ -41,44 +65,35 @@ func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event githubPullRe
 		return event, requestError(http.StatusBadRequest, "did not receive a supported github event")
 	}
 
+	// if event.Action != "opened" {
+	// 	return event, &events.APIGatewayProxyResponse{StatusCode: http.StatusOK}
+	// }
+
 	decoded, err := url.QueryUnescape(req.Body)
 	if err != nil {
 		log.Println(err)
 		return event, requestError(http.StatusBadRequest, fmt.Sprintf("error during url unescape of payload: %v", err))
 	}
-	payload := strings.TrimPrefix(decoded, "payload=")
+	re := regexp.MustCompile(`payload=({.*})(&.*)?$`)
+	payload := re.FindAllStringSubmatch(decoded, -1)[0]
+	// TODO: what if bad payload
 
-	if err = json.Unmarshal([]byte(payload), &event); err != nil {
-		return event, requestError(http.StatusBadRequest, fmt.Sprintf("could not unmarshal payload as json: %v", err))
+	if err = json.Unmarshal([]byte(payload[1]), &event); err != nil {
+		return event, requestError(http.StatusBadRequest, fmt.Sprintf("could not unmarshal payload as json: %v\nPAYLOAD>>%s\nDECODED>>%s", err, payload[1], decoded))
 	}
 
 	return event, nil
 }
 
-func findComponentsFromManifest(files []githubPullRequestFile) ([]string, error) {
-	manifests := make([]githubPullRequestFile, 0)
+func addRemediationsToPR(token string, event githubPullRequest, remediations map[githubPullRequestFile]map[int64]component) *events.APIGatewayProxyResponse {
 
-	for _, f := range files {
-		switch f.Filename {
-		case "package.json":
-			manifests = append(manifests, f)
+	for m, components := range remediations {
+		for pos, comp := range components {
+			err := addPullRequestComment(token, event, pos, m.Filename, comp.purl())
+			if err != nil {
+				log.Printf("WARN: could not add comment: %s", err)
+			}
 		}
-	}
-
-	log.Println("DEBUG: Changed manifests")
-
-	for _, m := range manifests {
-		log.Printf("DEBUG: %s: %s\n", m.Filename, m.Patch)
-	}
-
-	return nil, nil
-}
-
-func addRemediationsToPR(token string, event githubPullRequest, remediations map[string]string) *events.APIGatewayProxyResponse {
-
-	err := addPullRequestComment(event, token, "THINGY")
-	if err != nil {
-		return nil
 	}
 
 	return &events.APIGatewayProxyResponse{
@@ -93,22 +108,24 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		return *resp, nil
 	}
 
-	log.Printf("Received Pull Request from: %s\n", event.Repository.HTMLURL)
-	log.Printf("DEBUG: %s\n", req.Body)
+	log.Printf("TRACE: Received Pull Request from: %s\n", event.Repository.HTMLURL)
+	// log.Printf("DEBUG: %s\n", req.Body)
 
 	token := req.QueryStringParameters["token"]
 
-	files, err := getPullRequestFiles(event, token)
+	files, err := getPullRequestFiles(token, event)
 	if err != nil {
 		log.Printf("ERROR: could not get files from pull request: %v\n", err)
 		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not get files from pull request: %v\n", err)), nil
 	}
+	log.Printf("TRACE: Got %d files from full request\n", len(files))
 
-	components, err := findComponentsFromManifest(files)
+	manifests, err := findComponentsFromManifest(files)
 	if err != nil {
 		log.Printf("ERROR: could not read files to find manifest: %v\n", err)
 		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not read files to find manifest: %v\n", err)), nil
 	}
+	log.Printf("TRACE: Found manifests and added components: %q\n", manifests)
 
 	iqURL := req.QueryStringParameters["iq_server"]
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
@@ -119,11 +136,12 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	}
 
 	iqApp := req.QueryStringParameters["iq_app"]
-	remediations, err := evaluateComponents(iq, iqApp, components)
+	remediations, err := evaluateComponents(iq, iqApp, manifests)
 	if err != nil {
 		log.Printf("ERROR: could not evaluate components: %v\n", err)
 		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not evaluate components: %v\n", err)), nil
 	}
+	log.Printf("TRACE: retrieved %d remediations based on IQ app %s\n", len(remediations), iqApp)
 
 	return *addRemediationsToPR(token, event, remediations), nil
 }

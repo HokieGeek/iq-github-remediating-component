@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -211,10 +212,11 @@ type githubPullRequestFile struct {
 
 // POST /repos/:owner/:repo/pulls/:pull_number/comments
 type githubPullRequestCommentSinglelineRequest struct {
-	Path string `json:"path"`
-	Line int64  `json:"line"`
-	Side string `json:"side"`
-	Body string `json:"body"`
+	CommitID string `json:"commit_id"`
+	Path     string `json:"path"`
+	Position int64  `json:"position"`
+	Side     string `json:"side"`
+	Body     string `json:"body"`
 }
 
 func getGitHubEventType(requestHeaders map[string]string) (string, error) {
@@ -245,7 +247,7 @@ func req(method, url, token string, payload io.Reader) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func getPullRequestFiles(pull githubPullRequest, token string) ([]githubPullRequestFile, error) {
+func getPullRequestFiles(token string, pull githubPullRequest) ([]githubPullRequestFile, error) {
 	resp, err := req(http.MethodGet, fmt.Sprintf("%s/files", pull.PullRequest.URL), token, nil)
 	if err != nil {
 		return nil, err
@@ -267,6 +269,27 @@ func getPullRequestFiles(pull githubPullRequest, token string) ([]githubPullRequ
 	return files, err
 }
 
-func addPullRequestComment(pull githubPullRequest, token, comment string) error {
+func addPullRequestComment(token string, pull githubPullRequest, position int64, path, comment string) error {
+	request := githubPullRequestCommentSinglelineRequest{
+		CommitID: pull.PullRequest.Head.SHA,
+		Path:     path,
+		Position: position,
+		Side:     "LEFT",
+		Body:     comment,
+	}
+
+	buf, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("could not create request: %s", err)
+	}
+
+	resp, err := req(http.MethodPost, token, pull.PullRequest.ReviewCommentsURL, bytes.NewBuffer(buf))
+	if err != nil {
+		return fmt.Errorf("error creating comment: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("error creating comment: %s", resp.Status)
+	}
+
 	return nil
 }
