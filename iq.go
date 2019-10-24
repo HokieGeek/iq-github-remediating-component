@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
 
@@ -30,6 +32,8 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 				// TODO: handle
 				continue
 			}
+
+			log.Printf("TRACE: evaluating component for manifest %s: %q\n", m.Filename, component)
 
 			rcomp, _ := remediation.ComponentForRemediationType(nexusiq.RemediationTypeNoViolations)
 			comp, _ := asComponent(rcomp)
