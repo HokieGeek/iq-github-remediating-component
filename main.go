@@ -127,7 +127,7 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	}
 	log.Printf("TRACE: Found manifests and added components: %q\n", manifests)
 
-	iqURL := req.QueryStringParameters["iq_server"]
+	iqURL := req.QueryStringParameters["iq_url"]
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
 	iq, err := nexusiq.New(iqURL, iqAuth[0], iqAuth[1])
 	if err != nil {
