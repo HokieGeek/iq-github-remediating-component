@@ -28,13 +28,12 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 		remediated := make(map[int64]component)
 		for p, c := range components {
 			component, _ := asIQComponent(c)
+			log.Printf("TRACE: evaluating component for manifest %s: %q\n", m.Filename, component)
 			remediation, err := nexusiq.GetRemediationByApp(iq, component, nexusiq.StageBuild, nexusApplication)
 			if err != nil {
-				// TODO: handle
+				log.Printf("ERROR: could not evaluate component %s: %s\n", component, err)
 				continue
 			}
-
-			log.Printf("TRACE: evaluating component for manifest %s: %q\n", m.Filename, component)
 
 			rcomp, _ := remediation.ComponentForRemediationType(nexusiq.RemediationTypeNoViolations)
 			comp, _ := asComponent(rcomp)
