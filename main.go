@@ -6,9 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -71,25 +69,7 @@ func isSupportedEventType(req events.APIGatewayProxyRequest) (bool, int) {
 	return true, http.StatusOK
 }
 
-func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event githubPullRequest, err error) {
-	decoded, err := url.QueryUnescape(req.Body)
-	if err != nil {
-		log.Println(err)
-		return event, fmt.Errorf("error during url unescape of payload: %v", err)
-	}
-	re := regexp.MustCompile(`payload=({.*})(&.*)?$`)
-	payload := re.FindAllStringSubmatch(decoded, -1)[0]
-	// TODO: what if bad payload
-
-	if err = json.Unmarshal([]byte(payload[1]), &event); err != nil {
-		return event, fmt.Errorf("could not unmarshal payload as json: %v\nPAYLOAD>>%s\nDECODED>>%s", err, payload[1], decoded)
-	}
-
-	return event, nil
-}
-
 func addCommentsToPR(token string, event githubPullRequest, remediations map[githubPullRequestFile]map[int64]component) error {
-
 	for m, components := range remediations {
 		for pos, comp := range components {
 			err := addPullRequestComment(token, event, pos, m.Filename, comp.purl())
@@ -102,7 +82,7 @@ func addCommentsToPR(token string, event githubPullRequest, remediations map[git
 	return nil
 }
 
-func parsePullRequest(iq nexusiq.IQ, token, iqApp string, event githubPullRequest) error {
+func evaluatePullRequest(iq nexusiq.IQ, token, iqApp string, event githubPullRequest) error {
 	log.Printf("TRACE: Received Pull Request from: %s\n", event.Repository.HTMLURL)
 	// log.Printf("DEBUG: %s\n", req.Body)
 
@@ -134,19 +114,40 @@ func parsePullRequest(iq nexusiq.IQ, token, iqApp string, event githubPullReques
 	return nil
 }
 
+func handlePullRequest(iqURL, iqUser, iqPassword, iqApp, githubToken string, pull githubPullRequest) error {
+	iq, err := nexusiq.New(iqURL, iqUser, iqPassword)
+	if err != nil {
+		log.Printf("ERROR: could not create IQ client: %v", err)
+		return fmt.Errorf("could not create IQ client: %v", err)
+	}
+	log.Printf("TRACE: created client to IQ server as: %s\n", iqApp)
+
+	err = evaluatePullRequest(iq, githubToken, iqApp, pull)
+	if err != nil {
+		log.Printf("ERROR: could not parse pull request: %v", err)
+		return fmt.Errorf("could not parse pull request: %v", err)
+	}
+	log.Println("TRACE: done")
+
+	return nil
+}
+
 func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	if supported, status := isSupportedEventType(req); !supported {
 		return *requestError(status, "Unsupported event"), nil
 	}
 
-	event, err := getGitHubPullRequest(req)
-	if err != nil {
-		return *requestError(http.StatusBadRequest, err.Error()), err
+	var event githubPullRequest
+	if err := json.Unmarshal([]byte(req.Body), &event); err != nil {
+		return *requestError(http.StatusBadRequest, fmt.Sprintf("could not unmarshal payload as json: %v", err)), err
 	}
 
-	// if event.Action != "opened" {
-	// 	return event, &events.APIGatewayProxyResponse{StatusCode: http.StatusOK}
-	// }
+	if event.Action != "opened" {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusNoContent,
+			Body:       "Only processing new pull requests",
+		}, nil
+	}
 
 	log.Printf("TRACE: Received Pull Request from: %s\n", event.Repository.HTMLURL)
 	// log.Printf("DEBUG: %s\n", req.Body)
@@ -155,22 +156,14 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	iqApp := req.QueryStringParameters["iq_app"]
 	iqURL := req.QueryStringParameters["iq_url"]
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
-	iq, err := nexusiq.New(iqURL, iqAuth[0], iqAuth[1])
-	if err != nil {
-		log.Printf("ERROR: could not create IQ client: %v\n", err)
-		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not create IQ client: %v\n", err)), nil
-	}
-	log.Printf("TRACE: created client to IQ server as: %s:%s@%s\n", iqAuth[0], iqAuth[1], iqURL)
-
-	err = parsePullRequest(iq, token, iqApp, event)
-	if err != nil {
-		log.Printf("ERROR: could not parse pull request: %v\n", err)
-		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not parse pull request: %v\n", err)), nil
+	log.Println("TRACE: handling request")
+	if err := handlePullRequest(iqURL, iqAuth[0], iqAuth[1], iqApp, token, event); err != nil {
+		panic(fmt.Sprintf("ERROR: error handling pull request: %v\n", err))
 	}
 
 	return events.APIGatewayProxyResponse{
 		StatusCode: http.StatusOK,
-		// Body:       string(buf),
+		Body:       "Evaluating new pull request",
 	}, nil
 }
 
@@ -196,16 +189,11 @@ func testPR() {
 		panic(err)
 	}
 
-	url := os.Args[0]
-	user := os.Args[1]
-	pass := os.Args[2]
-	iq, err := nexusiq.New(url, user, pass)
-	if err != nil {
-		panic(fmt.Sprintf("ERROR: could not create IQ client: %v\n", err))
-	}
-
-	if err := parsePullRequest(iq, token, "jshop", pull); err != nil {
-		panic(fmt.Sprintf("could not parse pull request: %v\n", err))
+	url := os.Args[1]
+	user := os.Args[2]
+	pass := os.Args[3]
+	if err := handlePullRequest(url, user, pass, "jshop", token, pull); err != nil {
+		panic(fmt.Sprintf("ERROR: error handling pull request: %v\n", err))
 	}
 }
 
