@@ -1,7 +1,11 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
+
+	"github.com/package-url/packageurl-go"
 
 	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
@@ -15,24 +19,29 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 	asComponent := func(c nexusiq.Component) (component, error) {
 		log.Printf("TRACE: asComponent(): %q\n", c)
 
-		if c.ComponentID != nil {
+		switch {
+		case c.ComponentID != nil:
 			return component{
 				c.ComponentID.Format,
 				c.ComponentID.Coordinates.GroupID,
 				c.ComponentID.Coordinates.ArtifactID,
 				c.ComponentID.Coordinates.Version,
 			}, nil
+
+		case c.PackageURL != "":
+			purl, err := packageurl.FromString(c.PackageURL)
+			if err != nil {
+				return component{}, fmt.Errorf("could not parse PackageURL: %v", err)
+			}
+			return component{
+				purl.Type,
+				purl.Namespace,
+				purl.Name,
+				purl.Version,
+			}, nil
 		}
 
-		/*
-			if c.PackageURL != "" {
-
-			}
-		*/
-
-		var comp component
-
-		return comp, nil
+		return component{}, errors.New("nexusiq.Component not formatted well enough to parse")
 	}
 
 	remediations := make(map[githubPullRequestFile]map[int64]component)
