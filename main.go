@@ -29,14 +29,15 @@ func (c component) purl() string {
 	switch c.format {
 	case "npm":
 		return fmt.Sprintf("pkg:npm/%s@%s", c.name, c.version)
+	case "nuget":
+		return fmt.Sprintf("pkg:nuget/%s@%s", c.name, c.version)
+	case "pypi":
+		return fmt.Sprintf("pkg:pypi/%s@%s?extension=%s", c.name, c.version, "tar.gz")
 	// case "maven":
 	// 	return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", "group", c.name, c.version, "type")
-	// case "nuget":
-	// 	return fmt.Sprintf("pkg:nuget/%s@%s", c.name, c.version)
 	// case "golang":
 	// 	return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
-	// case "pypi":
-	// 	return fmt.Sprintf("pkg:pypi/%s@%s?extension=%s", c.name, c.version, "ext")
+	// pkg:golang/google.golang.org/genproto#googleapis/api/annotations
 	// case "ruby":
 	// 	return fmt.Sprintf("pkg:gem/%s@%s?platform=ruby", c.name, c.version)
 	default:
@@ -55,7 +56,7 @@ func isSupportedEventType(req events.APIGatewayProxyRequest) (bool, int) {
 	case eventType == "ping":
 		return false, http.StatusOK
 	case eventType != "pull_request":
-		log.Println("ERROR: did not receive a supported github event")
+		log.Printf("ERROR: did not receive a supported github event: %s\n", eventType)
 		return false, http.StatusBadRequest
 	}
 
@@ -72,6 +73,12 @@ func addCommentsToPR(token string, event githubPullRequest, remediations map[git
 			href = fmt.Sprintf("https://www.npmjs.com/package/%s/v/%s", c.name, c.version)
 		case "maven":
 			href = fmt.Sprintf("https://search.maven.org/artifact/%s/%s/%s/jar", c.group, c.name, c.version)
+		case "nuget":
+			href = fmt.Sprintf("https://www.nuget.org/packages/%s/%s", c.name, c.version)
+		case "pypi":
+			href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
+			// case "golang":
+			// 	href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
 		}
 
 		buf.WriteString("[Nexus Lifecycle](https://www.sonatype.com/product-nexus-lifecycle) has found that this version of `")
