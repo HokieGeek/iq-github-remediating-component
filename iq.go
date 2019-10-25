@@ -13,12 +13,26 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 	}
 
 	asComponent := func(c nexusiq.Component) (component, error) {
-		return component{
-			c.ComponentID.Format,
-			c.ComponentID.Coordinates.GroupID,
-			c.ComponentID.Coordinates.ArtifactID,
-			c.ComponentID.Coordinates.Version,
-		}, nil
+		log.Printf("TRACE: asComponent(): %q\n", c)
+
+		if c.ComponentID != nil {
+			return component{
+				c.ComponentID.Format,
+				c.ComponentID.Coordinates.GroupID,
+				c.ComponentID.Coordinates.ArtifactID,
+				c.ComponentID.Coordinates.Version,
+			}, nil
+		}
+
+		/*
+			if c.PackageURL != "" {
+
+			}
+		*/
+
+		var comp component
+
+		return comp, nil
 	}
 
 	remediations := make(map[githubPullRequestFile]map[int64]component)
@@ -35,7 +49,12 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 				continue
 			}
 
-			rcomp, _ := remediation.ComponentForRemediationType(nexusiq.RemediationTypeNoViolations)
+			rcomp, err := remediation.ComponentForRemediationType(nexusiq.RemediationTypeNoViolations)
+			if err != nil {
+				log.Printf("WARN: did not find remediating component for %s: %s\n", component, err)
+				log.Printf("TRACE: remediation: %q\n", remediation)
+				continue
+			}
 			comp, _ := asComponent(rcomp)
 			remediated[p] = comp
 		}
