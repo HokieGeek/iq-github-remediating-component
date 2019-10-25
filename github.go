@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 )
@@ -229,9 +230,10 @@ func getGitHubEventType(requestHeaders map[string]string) (string, error) {
 }
 
 func req(method, url, token string, payload io.Reader) (*http.Response, error) {
+	log.Printf("TRACE: req(%s, %s, %s, payload)", method, url, token)
 	request, err := http.NewRequest(method, url, payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not create HTTP request: %v", err)
 	}
 
 	request.Header.Set("Authorization", fmt.Sprintf("token %s", token))
@@ -241,7 +243,7 @@ func req(method, url, token string, payload io.Reader) (*http.Response, error) {
 	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 60 * time.Second,
 	}
 
 	return client.Do(request)
@@ -283,11 +285,11 @@ func addPullRequestComment(token string, pull githubPullRequest, position int64,
 		return fmt.Errorf("could not create request: %s", err)
 	}
 
-	resp, err := req(http.MethodPost, token, pull.PullRequest.ReviewCommentsURL, bytes.NewBuffer(buf))
+	resp, err := req(http.MethodPost, pull.PullRequest.ReviewCommentsURL, token, bytes.NewBuffer(buf))
 	if err != nil {
 		return fmt.Errorf("error creating comment: %s", err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("error creating comment: %s", resp.Status)
 	}
 

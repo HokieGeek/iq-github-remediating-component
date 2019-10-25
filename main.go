@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 
@@ -49,43 +51,44 @@ func requestError(statusCode int, message string) *events.APIGatewayProxyRespons
 	}
 }
 
-func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event githubPullRequest, resp *events.APIGatewayProxyResponse) {
+func isSupportedEventType(req events.APIGatewayProxyRequest) (bool, int) {
 	eventType, err := getGitHubEventType(req.Headers)
 	if err != nil {
-		return event, requestError(http.StatusBadRequest, fmt.Sprintf("could not parse request headers: %v", err))
+		log.Printf("could not parse request headers: %v", err)
+		return false, http.StatusBadRequest
 	}
 
 	// x-github-event: pull_request
 	// x-gitHub-event: ping
 	switch {
 	case eventType == "ping":
-		return event, &events.APIGatewayProxyResponse{StatusCode: http.StatusOK}
+		return false, http.StatusOK
 	case eventType != "pull_request":
-		log.Println("error: did not receive a supported github event")
-		return event, requestError(http.StatusBadRequest, "did not receive a supported github event")
+		log.Println("ERROR: did not receive a supported github event")
+		return false, http.StatusBadRequest
 	}
 
-	// if event.Action != "opened" {
-	// 	return event, &events.APIGatewayProxyResponse{StatusCode: http.StatusOK}
-	// }
+	return true, http.StatusOK
+}
 
+func getGitHubPullRequest(req events.APIGatewayProxyRequest) (event githubPullRequest, err error) {
 	decoded, err := url.QueryUnescape(req.Body)
 	if err != nil {
 		log.Println(err)
-		return event, requestError(http.StatusBadRequest, fmt.Sprintf("error during url unescape of payload: %v", err))
+		return event, fmt.Errorf("error during url unescape of payload: %v", err)
 	}
 	re := regexp.MustCompile(`payload=({.*})(&.*)?$`)
 	payload := re.FindAllStringSubmatch(decoded, -1)[0]
 	// TODO: what if bad payload
 
 	if err = json.Unmarshal([]byte(payload[1]), &event); err != nil {
-		return event, requestError(http.StatusBadRequest, fmt.Sprintf("could not unmarshal payload as json: %v\nPAYLOAD>>%s\nDECODED>>%s", err, payload[1], decoded))
+		return event, fmt.Errorf("could not unmarshal payload as json: %v\nPAYLOAD>>%s\nDECODED>>%s", err, payload[1], decoded)
 	}
 
 	return event, nil
 }
 
-func addRemediationsToPR(token string, event githubPullRequest, remediations map[githubPullRequestFile]map[int64]component) *events.APIGatewayProxyResponse {
+func addCommentsToPR(token string, event githubPullRequest, remediations map[githubPullRequestFile]map[int64]component) error {
 
 	for m, components := range remediations {
 		for pos, comp := range components {
@@ -96,37 +99,60 @@ func addRemediationsToPR(token string, event githubPullRequest, remediations map
 		}
 	}
 
-	return &events.APIGatewayProxyResponse{
-		StatusCode: http.StatusOK,
-		// Body:       string(buf),
-	}
+	return nil
 }
 
-func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	event, resp := getGitHubPullRequest(req)
-	if resp != nil {
-		return *resp, nil
-	}
-
+func parsePullRequest(iq nexusiq.IQ, token, iqApp string, event githubPullRequest) error {
 	log.Printf("TRACE: Received Pull Request from: %s\n", event.Repository.HTMLURL)
 	// log.Printf("DEBUG: %s\n", req.Body)
-
-	token := req.QueryStringParameters["token"]
 
 	files, err := getPullRequestFiles(token, event)
 	if err != nil {
 		log.Printf("ERROR: could not get files from pull request: %v\n", err)
-		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not get files from pull request: %v\n", err)), nil
+		return fmt.Errorf("could not get files from pull request: %v", err)
 	}
 	log.Printf("TRACE: Got %d files from pull request\n", len(files))
 
 	manifests, err := findComponentsFromManifest(files)
 	if err != nil {
 		log.Printf("ERROR: could not read files to find manifest: %v\n", err)
-		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not read files to find manifest: %v\n", err)), nil
+		return fmt.Errorf("could not read files to find manifest: %v", err)
 	}
 	log.Printf("TRACE: Found manifests and added components: %q\n", manifests)
 
+	remediations, err := evaluateComponents(iq, iqApp, manifests)
+	if err != nil {
+		log.Printf("ERROR: could not evaluate components: %v\n", err)
+		return fmt.Errorf("could not evaluate components: %v", err)
+	}
+	log.Printf("TRACE: retrieved %d remediations based on IQ app %s\n", len(remediations), iqApp)
+
+	if err = addCommentsToPR(token, event, remediations); err != nil {
+		return fmt.Errorf("could not add PR comments: %v", err)
+	}
+
+	return nil
+}
+
+func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	if supported, status := isSupportedEventType(req); !supported {
+		return *requestError(status, "Unsupported event"), nil
+	}
+
+	event, err := getGitHubPullRequest(req)
+	if err != nil {
+		return *requestError(http.StatusBadRequest, err.Error()), err
+	}
+
+	// if event.Action != "opened" {
+	// 	return event, &events.APIGatewayProxyResponse{StatusCode: http.StatusOK}
+	// }
+
+	log.Printf("TRACE: Received Pull Request from: %s\n", event.Repository.HTMLURL)
+	// log.Printf("DEBUG: %s\n", req.Body)
+
+	token := req.QueryStringParameters["token"]
+	iqApp := req.QueryStringParameters["iq_app"]
 	iqURL := req.QueryStringParameters["iq_url"]
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
 	iq, err := nexusiq.New(iqURL, iqAuth[0], iqAuth[1])
@@ -136,17 +162,54 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	}
 	log.Printf("TRACE: created client to IQ server as: %s:%s@%s\n", iqAuth[0], iqAuth[1], iqURL)
 
-	iqApp := req.QueryStringParameters["iq_app"]
-	remediations, err := evaluateComponents(iq, iqApp, manifests)
+	err = parsePullRequest(iq, token, iqApp, event)
 	if err != nil {
-		log.Printf("ERROR: could not evaluate components: %v\n", err)
-		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not evaluate components: %v\n", err)), nil
+		log.Printf("ERROR: could not parse pull request: %v\n", err)
+		return *requestError(http.StatusInternalServerError, fmt.Sprintf("could not parse pull request: %v\n", err)), nil
 	}
-	log.Printf("TRACE: retrieved %d remediations based on IQ app %s\n", len(remediations), iqApp)
 
-	return *addRemediationsToPR(token, event, remediations), nil
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusOK,
+		// Body:       string(buf),
+	}, nil
+}
+
+func testPR() {
+	tokenf, err := os.Open("token")
+	if err != nil {
+		panic(err)
+	}
+	defer tokenf.Close()
+
+	buf, _ := ioutil.ReadAll(tokenf)
+	token := string(buf)
+
+	pr, err := os.Open("pullrequest_sample.json")
+	if err != nil {
+		panic(err)
+	}
+	defer pr.Close()
+	buf, _ = ioutil.ReadAll(pr)
+	var pull githubPullRequest
+	if err := json.Unmarshal(buf, &pull); err != nil {
+		fmt.Println(string(buf))
+		panic(err)
+	}
+
+	url := "http://54.174.77.77:8070"
+	user := "admin"
+	pass := "admin1234"
+	iq, err := nexusiq.New(url, user, pass)
+	if err != nil {
+		panic(fmt.Sprintf("ERROR: could not create IQ client: %v\n", err))
+	}
+
+	if err := parsePullRequest(iq, token, "jshop", pull); err != nil {
+		panic(fmt.Sprintf("could not parse pull request: %v\n", err))
+	}
 }
 
 func main() {
 	lambda.Start(handleLambdaEvent)
+	// testPR()
 }

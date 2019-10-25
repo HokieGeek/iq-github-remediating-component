@@ -19,6 +19,7 @@ aws --profile admin lambda get-function --function-name ${name} && {
         --zip-file fileb://${name}.zip \
         --handler ${name} \
         --runtime go1.x \
+        --timeout 120 \
         --role ${roleArn}
 }
 
