@@ -32,7 +32,7 @@ func httpreq(method, url string, payload io.Reader) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[githubPullRequestFile]map[int64]component) (map[githubPullRequestFile]map[int64]component, error) {
+func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests map[githubPullRequestFile]map[int64]component) (map[githubPullRequestFile]map[int64]component, error) {
 	asIQComponent := func(c component) (nexusiq.Component, error) {
 		// TODO: how bout errors and validation?
 		return nexusiq.Component{PackageURL: c.purl()}, nil
@@ -78,17 +78,15 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 		for p, c := range components {
 			iqcomponent, _ := asIQComponent(c)
 			log.Printf("TRACE: evaluating %s component for manifest %s: %v\n", nexusApplication, m.Filename, iqcomponent)
+
+			log.Println("TRACE: retrieving remediating component")
 			remediation, err := nexusiq.GetRemediationByApp(iq, iqcomponent, nexusiq.StageBuild, nexusApplication)
-			// remediation, err := getRemediation(iq, iqcomponent, nexusiq.StageBuild, nexusApplication)
-			log.Printf("TRACE: err=%v; rem=%v\n", err, remediation)
 			if err != nil {
 				log.Printf("ERROR: could not evaluate component %v: %v\n", iqcomponent, err)
 				continue
 			}
 
-			log.Println("TRACE: retrieving remediating component")
 			rcomp, err := remediation.ComponentForRemediationType(nexusiq.RemediationTypeNoViolations)
-			// rcomp, err := getRem(remediation, nexusiq.RemediationTypeNoViolations)
 			if err != nil {
 				log.Printf("WARN: did not find remediating component for %v: %v\n", iqcomponent, err)
 				log.Printf("TRACE: remediation: %v\n", remediation)
@@ -102,9 +100,15 @@ func evaluateComponents(iq nexusiq.IQ, nexusApplication string, manifests map[gi
 				continue
 			}
 
+			// Only add if it's a different version
+			if comp.version == c.version {
+				continue
+			}
+
+			// TODO: evaluate the component to determine what is wrong with it
+
 			log.Printf("TRACE: adding suggestion: %v[%d] = %v\n", iqcomponent, p, comp)
 			remediated[p] = comp
-			time.Sleep(10 * time.Second)
 		}
 
 		if len(remediated) > 0 {
