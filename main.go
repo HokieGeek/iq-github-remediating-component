@@ -196,9 +196,9 @@ func testPR() {
 		panic(err)
 	}
 
-	url := "http://54.174.77.77:8070"
-	user := "admin"
-	pass := "admin1234"
+	url := os.Args[0]
+	user := os.Args[1]
+	pass := os.Args[2]
 	iq, err := nexusiq.New(url, user, pass)
 	if err != nil {
 		panic(fmt.Sprintf("ERROR: could not create IQ client: %v\n", err))
