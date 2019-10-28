@@ -276,7 +276,7 @@ func addPullRequestComment(token string, pull githubPullRequest, position int64,
 		CommitID: pull.PullRequest.Head.SHA,
 		Path:     path,
 		Position: position,
-		Side:     "LEFT",
+		Side:     "RIGHT",
 		Body:     comment,
 	}
 

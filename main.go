@@ -33,8 +33,8 @@ func (c component) purl() string {
 		return fmt.Sprintf("pkg:nuget/%s@%s", c.name, c.version)
 	case "pypi":
 		return fmt.Sprintf("pkg:pypi/%s@%s?extension=%s", c.name, c.version, "tar.gz")
-	// case "maven":
-	// 	return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", "group", c.name, c.version, "type")
+	case "maven":
+		return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", c.group, c.name, c.version, "jar")
 	// case "golang":
 	// 	return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
 	// pkg:golang/google.golang.org/genproto#googleapis/api/annotations
