@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"log"
 	"regexp"
 	"strings"
 )
@@ -33,7 +34,7 @@ func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, 
 }
 
 func componentsFromNpm(lines map[int64]string) (map[int64]component, error) {
-	re := regexp.MustCompile(`"([^"]*)": ".?([0-9](\.[0-9])+)",?`)
+	re := regexp.MustCompile(`"([^"]*)": ".?([0-9]+(\.[0-9]+)+)",?`)
 	return componentsSingleLineNameVersion(lines, re, "npm", []string{"name", "version"})
 }
 
@@ -45,6 +46,11 @@ func componentsFromNuget(lines map[int64]string) (map[int64]component, error) {
 func componentsFromPypi(lines map[int64]string) (map[int64]component, error) {
 	re := regexp.MustCompile(`(.*)==([^\s#]*)`)
 	return componentsSingleLineNameVersion(lines, re, "pypi", []string{"name", "version"})
+}
+
+func componentsFromGomod(lines map[int64]string) (map[int64]component, error) {
+	re := regexp.MustCompile(`^\s*([^\s]*)\s(v[0-9+](\.[0-9]+)+(-[-0-9a-z]+)?)\s*.*$`)
+	return componentsSingleLineNameVersion(lines, re, "golang", []string{"name", "version"})
 }
 
 func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
@@ -149,7 +155,6 @@ func findComponentsFromManifest(files []githubPullRequestFile) (map[githubPullRe
 
 	for _, f := range files {
 		components := make(map[int64]component)
-		// log.Printf("TRACE: %s patch:\n%s", f.Filename, f.Patch)
 		var err error
 		switch f.Filename {
 		case "pom.xml":
@@ -162,8 +167,11 @@ func findComponentsFromManifest(files []githubPullRequestFile) (map[githubPullRe
 			components, err = getComponents(f.Patch, componentsFromNuget)
 		case "requirements.txt":
 			components, err = getComponents(f.Patch, componentsFromPypi)
-			// case "go.sum":
-			// case "go.mod":
+		case "go.sum":
+			fallthrough
+		case "go.mod":
+			log.Printf("TRACE: %s patch:\n%s", f.Filename, f.Patch)
+			components, err = getComponents(f.Patch, componentsFromGomod)
 		}
 
 		if err != nil {

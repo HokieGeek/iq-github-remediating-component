@@ -35,9 +35,8 @@ func (c component) purl() string {
 		return fmt.Sprintf("pkg:pypi/%s@%s?extension=%s", c.name, c.version, "tar.gz")
 	case "maven":
 		return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", c.group, c.name, c.version, "jar")
-	// case "golang":
-	// 	return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
-	// pkg:golang/google.golang.org/genproto#googleapis/api/annotations
+	case "golang":
+		return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
 	// case "ruby":
 	// 	return fmt.Sprintf("pkg:gem/%s@%s?platform=ruby", c.name, c.version)
 	default:
@@ -77,8 +76,8 @@ func addCommentsToPR(token string, event githubPullRequest, remediations map[git
 			href = fmt.Sprintf("https://www.nuget.org/packages/%s/%s", c.name, c.version)
 		case "pypi":
 			href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
-			// case "golang":
-			// 	href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
+		case "golang":
+			href = fmt.Sprintf("https://%s/releases/tag/%s", c.name, c.version)
 		}
 
 		buf.WriteString("[Nexus Lifecycle](https://www.sonatype.com/product-nexus-lifecycle) has found that this version of `")
