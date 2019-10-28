@@ -129,7 +129,15 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/syndtr/goleveldb v1.0.0 h1:fBdIW9lB4Iz0n9khmH8w27SJ3QEJ7+IgjPEwGSZiFdE=
 github.com/syndtr/goleveldb v1.0.0/go.mod h1:ZVVdQEZoIme9iO1Ch2Jdy24qqXrMMOU6lpPAyBWyWuQ=
 github.com/syndtr/goleveldb v1.0.1-0.20190318030020-c3a204f8e965/go.mod h1:9OrXJhf154huy1nPWmuSrkgjPUtUNhA+Zmy+6AESzuA=`,
-	"go.mod": ``,
+	"go.mod": `@@ -33,6 +33,7 @@ require (
+		 github.com/satori/go.uuid v1.2.0 // indirect
+		 github.com/shirou/gopsutil v2.19.9+incompatible // indirect
+		 github.com/spf13/cobra v0.0.5 // indirect
+	+	github.com/syncthing/syncthing v0.10.26 // indirect
+		 github.com/ziutek/mymysql v1.5.4 // indirect
+		 go.uber.org/atomic v1.4.0 // indirect
+		 go.uber.org/multierr v1.1.0 // indirect
+	`,
 }
 
 func TestParsePatchAdditions(t *testing.T) {
@@ -190,10 +198,10 @@ func Test_getMavenComponents(t *testing.T) {
 			"maven",
 			args{dummyPatches["pom.xml"]},
 			map[int64]component{
-				4:  component{format: "maven", group: "axis", name: "axis", version: "1.2.1"},
-				12: component{format: "maven", group: "commons-fileupload", name: "commons-fileupload", version: "1.2.2"},
-				20: component{format: "maven", group: "commons-collections", name: "commons-collections", version: "3.0"},
-				31: component{format: "maven", group: "org.bouncycastle", name: "org.bouncycastle", version: "1.55"},
+				5:  component{format: "maven", group: "axis", name: "axis", version: "1.2.1"},
+				14: component{format: "maven", group: "commons-fileupload", name: "commons-fileupload", version: "1.2.2"},
+				23: component{format: "maven", group: "commons-collections", name: "commons-collections", version: "3.0"},
+				34: component{format: "maven", group: "org.bouncycastle", name: "org.bouncycastle", version: "1.55"},
 			},
 			false,
 		},
