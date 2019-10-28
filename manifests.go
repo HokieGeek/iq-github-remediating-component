@@ -2,12 +2,11 @@ package main
 
 import (
 	"bufio"
-	"log"
 	"regexp"
 	"strings"
 )
 
-func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, format string) (map[int64]component, error) {
+func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, format string, fields []string) (map[int64]component, error) {
 	converted := make(map[int64]component)
 
 	for p, l := range lines {
@@ -16,9 +15,18 @@ func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, 
 			continue
 		}
 		found := matches[0]
-		name := found[1]
-		version := found[2]
-		converted[p] = component{format: format, name: name, version: version}
+		c := component{format: format}
+		for i, f := range fields {
+			switch f {
+			case "group":
+				c.group = found[i+1]
+			case "name":
+				c.name = found[i+1]
+			case "version":
+				c.version = found[i+1]
+			}
+		}
+		converted[p] = c
 	}
 
 	return converted, nil
@@ -26,25 +34,25 @@ func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, 
 
 func componentsFromNpm(lines map[int64]string) (map[int64]component, error) {
 	re := regexp.MustCompile(`"([^"]*)": ".?([0-9](\.[0-9])+)",?`)
-	return componentsSingleLineNameVersion(lines, re, "npm")
+	return componentsSingleLineNameVersion(lines, re, "npm", []string{"name", "version"})
 }
 
 func componentsFromNuget(lines map[int64]string) (map[int64]component, error) {
 	re := regexp.MustCompile(`<package id="([^"]*)" version="([^"]*)"`)
-	return componentsSingleLineNameVersion(lines, re, "nuget")
+	return componentsSingleLineNameVersion(lines, re, "nuget", []string{"name", "version"})
 }
 
 func componentsFromPypi(lines map[int64]string) (map[int64]component, error) {
 	re := regexp.MustCompile(`(.*)==([^\s#]*)`)
-	return componentsSingleLineNameVersion(lines, re, "pypi")
+	return componentsSingleLineNameVersion(lines, re, "pypi", []string{"name", "version"})
 }
 
 func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
 	reOld := regexp.MustCompile(`^.*group:\s*'([^']*)',\s+name:\s*'([^']*)',\s+version:\s*'([^']*)'\s*$`)
 	reNew := regexp.MustCompile(`^[^\s(]*[\s(]["']([^:]*):([^:]*):([^:]*)["']\)?$`)
-
+	fields := []string{"group", "name", "version"}
 	components := make(map[int64]component)
-	if comps, err := componentsSingleLineNameVersion(lines, reOld, "maven"); err != nil {
+	if comps, err := componentsSingleLineNameVersion(lines, reOld, "maven", fields); err == nil {
 		for k, v := range comps {
 			if _, ok := components[k]; !ok {
 				components[k] = v
@@ -53,7 +61,7 @@ func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
 		}
 	}
 
-	if comps, err := componentsSingleLineNameVersion(lines, reNew, "maven"); err != nil {
+	if comps, err := componentsSingleLineNameVersion(lines, reNew, "maven", fields); err == nil {
 		for k, v := range comps {
 			if _, ok := components[k]; !ok {
 				components[k] = v
