@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-type githubPullRequest struct {
+// GithubPullRequest defines the structure of a Github pull request
+type GithubPullRequest struct {
 	Action      string      `json:"action"`
 	Number      int64       `json:"number"`
 	PullRequest pullRequest `json:"pull_request"`
@@ -249,7 +250,7 @@ func req(method, url, token string, payload io.Reader) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func getPullRequestFiles(token string, pull githubPullRequest) ([]githubPullRequestFile, error) {
+func getPullRequestFiles(token string, pull GithubPullRequest) ([]githubPullRequestFile, error) {
 	resp, err := req(http.MethodGet, fmt.Sprintf("%s/files", pull.PullRequest.URL), token, nil)
 	if err != nil {
 		return nil, err
@@ -271,7 +272,7 @@ func getPullRequestFiles(token string, pull githubPullRequest) ([]githubPullRequ
 	return files, err
 }
 
-func addPullRequestComment(token string, pull githubPullRequest, position int64, path, comment string) error {
+func addPullRequestComment(token string, pull GithubPullRequest, position int64, path, comment string) error {
 	request := githubPullRequestCommentSinglelineRequest{
 		CommitID: pull.PullRequest.Head.SHA,
 		Path:     path,
@@ -294,4 +295,24 @@ func addPullRequestComment(token string, pull githubPullRequest, position int64,
 	}
 
 	return nil
+}
+
+// IsValidGithubWebhookPullRequestEvent returns true if the given HTTP headers are for a valid pull request or ping.
+// Also returns a valid http status code.
+func IsValidGithubWebhookPullRequestEvent(reqHeaders map[string]string) (bool, int) {
+	eventType, err := getGitHubEventType(reqHeaders)
+	if err != nil {
+		log.Printf("could not parse request headers: %v", err)
+		return false, http.StatusBadRequest
+	}
+
+	switch {
+	case eventType == "ping":
+		return false, http.StatusOK
+	case eventType != "pull_request":
+		log.Printf("ERROR: did not receive a supported github event: %s\n", eventType)
+		return false, http.StatusBadRequest
+	}
+
+	return true, http.StatusOK
 }
