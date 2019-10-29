@@ -37,8 +37,8 @@ func (c component) purl() string {
 		return fmt.Sprintf("pkg:maven/%s/%s@%s?type=%s", c.group, c.name, c.version, "jar")
 	case "golang":
 		return fmt.Sprintf("pkg:golang/%s@%s", c.name, c.version)
-	// case "ruby":
-	// 	return fmt.Sprintf("pkg:gem/%s@%s?platform=ruby", c.name, c.version)
+	case "ruby":
+		return fmt.Sprintf("pkg:gem/%s@%s?platform=ruby", c.name, c.version)
 	default:
 		return ""
 	}
@@ -78,6 +78,10 @@ func addCommentsToPR(token string, event githubPullRequest, remediations map[git
 			href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
 		case "golang":
 			href = fmt.Sprintf("https://%s/releases/tag/%s", c.name, c.version)
+		case "ruby":
+			fallthrough
+		case "gem":
+			href = fmt.Sprintf("https://rubygems.org/gems/%s/versions/%s", c.name, c.version)
 		}
 
 		buf.WriteString("[Nexus Lifecycle](https://www.sonatype.com/product-nexus-lifecycle) has found that this version of `")

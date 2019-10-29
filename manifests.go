@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"log"
 	"regexp"
 	"strings"
 )
@@ -51,6 +50,34 @@ func componentsFromPypi(lines map[int64]string) (map[int64]component, error) {
 func componentsFromGomod(lines map[int64]string) (map[int64]component, error) {
 	re := regexp.MustCompile(`^\s*([^\s]*)\s(v[0-9+](\.[0-9]+)+(-[-0-9a-z]+)?)\s*.*$`)
 	return componentsSingleLineNameVersion(lines, re, "golang", []string{"name", "version"})
+}
+
+func componentsFromRuby(lines map[int64]string) (map[int64]component, error) {
+	re := regexp.MustCompile(`gem\s*'([^']*)',\s*'[><~=\s]*([0-9+](\.[0-9]+)+(\.[0-9a-z]+)?)'$`)
+	comps, err := componentsSingleLineNameVersion(lines, re, "ruby", []string{"name", "version"})
+
+	reFill := regexp.MustCompile(`([0-9]+)(\.[0-9]+)?(\.[0-9]+)?(\.[0-9a-z]+)?`)
+	versionFill := func(v string) string {
+		ver := v
+		matches := reFill.FindAllStringSubmatch(v, -1)
+		for i, m := range matches[0] {
+			if i < 2 || i > 3 {
+				continue
+			}
+			if m == "" {
+				ver += ".0"
+			}
+		}
+
+		return ver
+	}
+
+	for k, c := range comps {
+		c.version = versionFill(c.version)
+		comps[k] = c
+	}
+
+	return comps, err
 }
 
 func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
@@ -170,8 +197,9 @@ func findComponentsFromManifest(files []githubPullRequestFile) (map[githubPullRe
 		case "go.sum":
 			fallthrough
 		case "go.mod":
-			log.Printf("TRACE: %s patch:\n%s", f.Filename, f.Patch)
 			components, err = getComponents(f.Patch, componentsFromGomod)
+		case "Gemfile":
+			components, err = getComponents(f.Patch, componentsFromRuby)
 		}
 
 		if err != nil {

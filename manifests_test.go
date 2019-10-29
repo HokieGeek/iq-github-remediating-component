@@ -138,6 +138,15 @@ github.com/syndtr/goleveldb v1.0.1-0.20190318030020-c3a204f8e965/go.mod h1:9OrXJ
 		 go.uber.org/atomic v1.4.0 // indirect
 		 go.uber.org/multierr v1.1.0 // indirect
 	`,
+	"Gemfile": `@@ -44,7 +44,7 @@ gem 'omniauth-saml', '~> 1.10'
+ gem 'omniauth', '~> 1.9'
+	 
+ gem 'discard', '~> 1.1'
+-gem 'doorkeeper', '~> 4.2'
++gem 'doorkeeper', '~> 4.3'
+ gem 'fast_blank', '~> 1.0'
+ gem 'fastimage'
+ gem 'goldfinger', '~> 2.1'`,
 }
 
 func TestParsePatchAdditions(t *testing.T) {
@@ -171,6 +180,11 @@ func TestParsePatchAdditions(t *testing.T) {
 				4: ` compile group: 'axis', name: 'axis', version: '1.2.1'`,
 				9: ` compile group: 'commons-fileupload', name: 'commons-fileupload', version: '1.2.2'`,
 			},
+		},
+		{
+			"ruby",
+			args{dummyPatches["Gemfile"]},
+			map[int64]string{5: `gem 'doorkeeper', '~> 4.3'`},
 		},
 	}
 	for _, tt := range tests {
