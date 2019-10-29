@@ -1,6 +1,6 @@
 #! /bin/bash
 
-name=iq-github-remediating-component
+name=iq-merge-review-remediations
 roleArn=$(aws --profile admin iam get-role --role-name lambda_basic_execution |jq '.Role.Arn'|sed 's/\"//g')
 
 GOARCH=amd64 GOOS=linux go build . || exit 1

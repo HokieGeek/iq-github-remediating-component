@@ -1,4 +1,4 @@
-module iq-github-remediating-component
+module github.com/hokiegeek/iq-merge-review-remediations
 
 go 1.13
 
