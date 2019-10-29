@@ -1,4 +1,4 @@
-# iq-github-remediating-component
+# iq-github-remediating-component [![DepShield Badge](https://depshield.sonatype.org/badges/HokieGeek/iq-github-remediating-component/depshield.svg)](https://depshield.github.io)
 
 AWS Lambda which uses your IQ instance to capture GitHub pull requests from your repos and adds comments to the PR with suggestions on versions to upgrade your vulnerable open source components.
 
