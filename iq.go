@@ -39,12 +39,12 @@ func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests 
 	}
 
 	asComponent := func(c nexusiq.Component) (component, error) {
-		log.Printf("TRACE: asComponent(): %v\n", c)
+		log.Printf("TRACE: asComponent(): %#v\n", c)
 
 		switch {
 		case c.PackageURL != "":
 			purl, err := packageurl.FromString(c.PackageURL)
-			log.Printf("TRACE: PURL: %s\n", purl.String())
+			log.Printf("TRACE: PURL: %#v\n", purl)
 			if err != nil {
 				return component{}, fmt.Errorf("could not parse PackageURL: %v", err)
 			}

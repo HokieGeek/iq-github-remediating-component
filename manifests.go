@@ -48,7 +48,7 @@ func componentsFromPypi(lines map[int64]string) (map[int64]component, error) {
 }
 
 func componentsFromGomod(lines map[int64]string) (map[int64]component, error) {
-	re := regexp.MustCompile(`^\s*([^\s]*)\s(v[0-9+](\.[0-9]+)+(-[-0-9a-z]+)?)\s*.*$`)
+	re := regexp.MustCompile(`^\s*([^\s]*)\s(v[0-9+](\.[0-9]+)+(-[-0-9a-z]+)?)(\s.*)?$`)
 	return componentsSingleLineNameVersion(lines, re, "golang", []string{"name", "version"})
 }
 

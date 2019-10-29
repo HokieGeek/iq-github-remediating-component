@@ -77,7 +77,7 @@ func addCommentsToPR(token string, event githubPullRequest, remediations map[git
 		case "pypi":
 			href = fmt.Sprintf("https://pypi.org/project/%s/%s", c.name, c.version)
 		case "golang":
-			href = fmt.Sprintf("https://%s/releases/tag/%s", c.name, c.version)
+			href = fmt.Sprintf("https://%s/%s/releases/tag/%s", c.group, c.name, c.version)
 		case "ruby":
 			fallthrough
 		case "gem":
