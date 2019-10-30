@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"log"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -110,16 +112,31 @@ func parsePatchLineAdditions(patch string) map[changeLocation]string {
 	adds := make(map[changeLocation]string)
 
 	scanner := bufio.NewScanner(strings.NewReader(patch))
-	var position int64
+	reHunkStart := regexp.MustCompile(`@@ -([0-9]+),[0-9]+ \+([0-9]+),[0-9]+ @@`)
+	var position, chunkStart, removals, hunkLines int64
 	for scanner.Scan() {
-		if len(scanner.Text()) == 0 {
+		line := scanner.Text()
+		if len(line) == 0 {
 			continue
 		}
 
-		if scanner.Text()[0] == '+' {
-			adds[changeLocation{Position: position}] = scanner.Text()[1:]
+		switch {
+		case line[0] == '-':
+			removals++
+		case line[0] == '+':
+			l := chunkStart + (hunkLines - removals)
+			log.Printf("Line: %d + (%d - %d) = %d\n", chunkStart, hunkLines, removals, l)
+			adds[changeLocation{Position: position, Line: l}] = line[1:]
+		case line[:2] == "@@":
+			match := reHunkStart.FindStringSubmatch(line)
+			log.Printf("LINE: OLD>%s NEW> %s\n", match[1], match[2])
+			chunkStart, _ = strconv.ParseInt(match[2], 10, 64)
+			log.Printf("chunkStart: %d\n", chunkStart)
+			removals = 0
+			hunkLines = 0
 		}
 		position++
+		hunkLines++
 	}
 
 	return adds
