@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -109,34 +108,35 @@ func componentsFromGradle(lines map[changeLocation]string) (map[changeLocation]c
 }
 
 func parsePatchLineAdditions(patch string) map[changeLocation]string {
+	// log.Println(patch)
 	adds := make(map[changeLocation]string)
 
 	scanner := bufio.NewScanner(strings.NewReader(patch))
 	reHunkStart := regexp.MustCompile(`@@ -([0-9]+),[0-9]+ \+([0-9]+),[0-9]+ @@`)
-	var position, chunkStart, removals, hunkLines int64
+	var position, hunkLine int64
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) == 0 {
+			hunkLine++
 			continue
 		}
 
+		// log.Printf("%d: %s\n", hunkLine, line)
+
 		switch {
+		case line == `\ No newline at end of file`:
+			fallthrough
 		case line[0] == '-':
-			removals++
+			hunkLine--
 		case line[0] == '+':
-			l := chunkStart + (hunkLines - removals)
-			log.Printf("Line: %d + (%d - %d) = %d\n", chunkStart, hunkLines, removals, l)
-			adds[changeLocation{Position: position, Line: l}] = line[1:]
+			adds[changeLocation{Position: position, Line: hunkLine}] = line[1:]
 		case line[:2] == "@@":
 			match := reHunkStart.FindStringSubmatch(line)
-			log.Printf("LINE: OLD>%s NEW> %s\n", match[1], match[2])
-			chunkStart, _ = strconv.ParseInt(match[2], 10, 64)
-			log.Printf("chunkStart: %d\n", chunkStart)
-			removals = 0
-			hunkLines = 0
+			hunkLine, _ = strconv.ParseInt(match[2], 10, 64)
+			hunkLine--
 		}
 		position++
-		hunkLines++
+		hunkLine++
 	}
 
 	return adds

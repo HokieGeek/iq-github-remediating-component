@@ -158,16 +158,14 @@ func TestParsePatchAdditions(t *testing.T) {
 		args args
 		want map[changeLocation]string
 	}{
-		/*
-			{
-				"npm",
-				args{dummyPatches["package.json"]},
-				map[changeLocation]string{
-					changeLocation{Position: 4, Line: 78}:   ` "chalk": "^1.0.0",`,
-					changeLocation{Position: 21, Line: 115}: ` "moment": "^2.1.0",`,
-				},
+		{
+			"npm",
+			args{dummyPatches["package.json"]},
+			map[changeLocation]string{
+				changeLocation{Position: 4, Line: 78}:   ` "chalk": "^1.0.0",`,
+				changeLocation{Position: 21, Line: 115}: ` "moment": "^2.1.0",`,
 			},
-		*/
+		},
 		{
 			"nuget",
 			args{dummyPatches["packages.config"]},
@@ -176,31 +174,29 @@ func TestParsePatchAdditions(t *testing.T) {
 				changeLocation{Position: 7, Line: 6}: `</packages>`,
 			},
 		},
-		/*
-			{
-				"pypi",
-				args{dummyPatches["requirements.txt"]},
-				map[changeLocation]string{
-					changeLocation{Position: 13, Line: 32}: `jinja2==2.10 # via flask`,
-					changeLocation{Position: 21, Line: 42}: `openpyxl==2.0.5`,
-				},
+		{
+			"pypi",
+			args{dummyPatches["requirements.txt"]},
+			map[changeLocation]string{
+				changeLocation{Position: 13, Line: 32}: `jinja2==2.10 # via flask`,
+				changeLocation{Position: 21, Line: 42}: `openpyxl==2.0.5`,
 			},
-			{
-				"gradle",
-				args{dummyPatches["build.gradle"]},
-				map[changeLocation]string{
-					changeLocation{Position: 4, Line: 14}: ` compile group: 'axis', name: 'axis', version: '1.2.1'`,
-					changeLocation{Position: 9, Line: 18}: ` compile group: 'commons-fileupload', name: 'commons-fileupload', version: '1.2.2'`,
-				},
+		},
+		{
+			"gradle",
+			args{dummyPatches["build.gradle"]},
+			map[changeLocation]string{
+				changeLocation{Position: 4, Line: 14}: ` compile group: 'axis', name: 'axis', version: '1.2.1'`,
+				changeLocation{Position: 9, Line: 18}: ` compile group: 'commons-fileupload', name: 'commons-fileupload', version: '1.2.2'`,
 			},
-			{
-				"ruby",
-				args{dummyPatches["Gemfile"]},
-				map[changeLocation]string{
-					changeLocation{Position: 5, Line: 47}: `gem 'doorkeeper', '~> 4.3'`,
-				},
+		},
+		{
+			"ruby",
+			args{dummyPatches["Gemfile"]},
+			map[changeLocation]string{
+				changeLocation{Position: 5, Line: 47}: `gem 'doorkeeper', '~> 4.3'`,
 			},
-		*/
+		},
 		// TODO: golang tests
 	}
 	for _, tt := range tests {
