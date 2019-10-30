@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 
 	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
@@ -36,6 +38,10 @@ func (c component) purl() string {
 	default:
 		return ""
 	}
+}
+
+type changedFile struct {
+	Filename, Patch string
 }
 
 func addRemediationsToPullRequest(token string, pull GithubPullRequest, remediations map[githubPullRequestFile]map[int64]component) error {
@@ -85,15 +91,8 @@ func addRemediationsToPullRequest(token string, pull GithubPullRequest, remediat
 }
 
 // ProcessPullRequestForRemediations will take a Github pull request and add any remediations if a manifest is found
-func ProcessPullRequestForRemediations(iqURL, iqUser, iqPassword, iqApp, token string, pull GithubPullRequest) error {
+func ProcessPullRequestForRemediations(iq nexusiq.IQ, iqApp, token string, pull GithubPullRequest) error {
 	log.Printf("TRACE: Received Pull Request from: %s\n", pull.Repository.HTMLURL)
-
-	iq, err := nexusiq.New(iqURL, iqUser, iqPassword)
-	if err != nil {
-		log.Printf("ERROR: could not create IQ client: %v", err)
-		return fmt.Errorf("could not create IQ client: %v", err)
-	}
-	log.Printf("TRACE: created client to IQ server as: %s\n", iqApp)
 
 	files, err := getPullRequestFiles(token, pull)
 	if err != nil {
@@ -121,4 +120,51 @@ func ProcessPullRequestForRemediations(iqURL, iqUser, iqPassword, iqApp, token s
 	}
 
 	return nil
+}
+
+// HandleGithubWebhookPullRequestEvent unmarshals a pull request event from Github and remediates if it is a new one
+func HandleGithubWebhookPullRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
+	var event GithubPullRequest
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
+	}
+
+	if event.Action != "opened" {
+		return http.StatusNoContent, fmt.Errorf("Only processing new pull requests")
+	}
+
+	if err := ProcessPullRequestForRemediations(iq, iqApp, token, event); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("error: error handling pull request: %v", err)
+	}
+
+	return http.StatusOK, nil
+}
+
+// ProcessMergeRequestForRemediations will take a Gitlab merge request and add any remediations if a manifest is found
+func ProcessMergeRequestForRemediations(iq nexusiq.IQ, iqApp, token string, mr GitlabMergeRequest) error {
+	return nil
+}
+
+// HandleGitlabWebhookMergeRequestEvent unmarshals a merge request event from Gitlab and remediates if it is a new one
+func HandleGitlabWebhookMergeRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
+	var event gitlabMergeRequestWebhookEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
+	}
+
+	if event.ObjectAttributes.State != "opened" {
+		return http.StatusNoContent, fmt.Errorf("Only processing new merge requests")
+	}
+
+	// TODO: get merge request from event
+	mr, err := getMergeRequest(token, event.Project.ID, event.ObjectAttributes.Iid)
+	if err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not find merge request: %v", err)
+	}
+
+	if err := ProcessMergeRequestForRemediations(iq, iqApp, token, mr); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("error: error handling merge request: %v", err)
+	}
+
+	return http.StatusOK, nil
 }

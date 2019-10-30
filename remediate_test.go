@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+
+	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
 
 func Test_processPullRequestForRemediations(t *testing.T) {
@@ -30,13 +32,19 @@ func Test_processPullRequestForRemediations(t *testing.T) {
 		panic(err)
 	}
 
+	iqURL := "URL"
+	iqUser := "USER"
+	iqPassword := "PASS"
+	iq, err := nexusiq.New(iqURL, iqUser, iqPassword)
+	if err != nil {
+		panic(err)
+	}
+
 	type args struct {
-		iqURL      string
-		iqUser     string
-		iqPassword string
-		iqApp      string
-		token      string
-		pull       GithubPullRequest
+		iq    nexusiq.IQ
+		iqApp string
+		token string
+		pull  GithubPullRequest
 	}
 	tests := []struct {
 		name    string
@@ -46,19 +54,17 @@ func Test_processPullRequestForRemediations(t *testing.T) {
 		{
 			"real data",
 			args{
-				iqURL:      "URL",
-				iqUser:     "USER",
-				iqPassword: "PASS",
-				iqApp:      "APP",
-				token:      token,
-				pull:       pull,
+				iq:    iq,
+				token: token,
+				iqApp: "APP",
+				pull:  pull,
 			},
 			false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := ProcessPullRequestForRemediations(tt.args.iqURL, tt.args.iqUser, tt.args.iqPassword, tt.args.iqApp, tt.args.token, tt.args.pull); (err != nil) != tt.wantErr {
+			if err := ProcessPullRequestForRemediations(tt.args.iq, tt.args.token, tt.args.iqApp, tt.args.pull); (err != nil) != tt.wantErr {
 				t.Errorf("processPullRequestForRemediations() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

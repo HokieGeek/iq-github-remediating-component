@@ -1,13 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+
+	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
 
 func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -18,28 +20,38 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		}
 	}
 
-	if supported, status := IsValidGithubWebhookPullRequestEvent(req.Headers); !supported {
-		return requestResponse(status, "Unsupported event"), nil
-	}
-
-	var event GithubPullRequest
-	if err := json.Unmarshal([]byte(req.Body), &event); err != nil {
-		return requestResponse(http.StatusBadRequest, fmt.Sprintf("could not unmarshal payload as json: %v", err)), err
-	}
-
-	if event.Action != "opened" {
-		return requestResponse(http.StatusNoContent, "Only processing new pull requests"), nil
-	}
-
 	token := req.QueryStringParameters["token"]
 	iqApp := req.QueryStringParameters["iq_app"]
 	iqURL := req.QueryStringParameters["iq_url"]
 	iqAuth := strings.Split(req.QueryStringParameters["iq_auth"], ":")
-	if err := ProcessPullRequestForRemediations(iqURL, iqAuth[0], iqAuth[1], iqApp, token, event); err != nil {
-		return requestResponse(http.StatusInternalServerError, fmt.Sprintf("ERROR: error handling pull request: %v\n", err)), err
+
+	iq, err := nexusiq.New(iqURL, iqAuth[0], iqAuth[1])
+	if err != nil {
+		err2 := fmt.Errorf("could not create IQ client: %v", err)
+		log.Printf("ERROR: %v", err2)
+		return requestResponse(http.StatusInternalServerError, err2.Error()), err2
+	}
+	log.Printf("TRACE: created client to IQ server as: %s\n", iqApp)
+
+	if supported, _ := IsValidGithubWebhookPullRequestEvent(req.Headers); supported {
+		status, err := HandleGithubWebhookPullRequestEvent(iq, iqApp, token, []byte(req.Body))
+		if err != nil {
+			log.Printf("ERROR: %v", err)
+			return requestResponse(status, err.Error()), err
+		}
+		return requestResponse(status, "Evaluating new Github pull request"), nil
 	}
 
-	return requestResponse(http.StatusOK, "Evaluating new pull request"), nil
+	if supported, _ := IsValidGitlabWebhookMergeRequestEvent(req.Headers); supported {
+		status, err := HandleGitlabWebhookMergeRequestEvent(iq, iqApp, token, []byte(req.Body))
+		if err != nil {
+			log.Printf("ERROR: %v", err)
+			return requestResponse(status, err.Error()), err
+		}
+		return requestResponse(status, "Evaluating new Gitlab merge request"), nil
+	}
+
+	return requestResponse(http.StatusNotFound, "Did not recognize webhook event"), nil
 }
 
 func main() {
