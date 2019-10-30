@@ -2,13 +2,27 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
+	"text/template"
 
 	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
+
+type componentRemediations map[changedFile]map[changeLocation]component
+type addCommentFunc func(filename string, location changeLocation, comment string) error
+
+type changeLocation struct {
+	Position, Line int64
+}
+
+type changedFile struct {
+	Filename, Patch string
+}
+
+var commentTmpl = "[Nexus Lifecycle](https://www.sonatype.com/product-nexus-lifecycle) has found that this version of " +
+	"`{{.Name}}` violates your company's policies.\n\n" +
+	"Lifecycle recommends using version [{{.Version}}]({{.Href}}) instead as it does not violate any policies.\n\n"
 
 type component struct {
 	format, group, name, version string
@@ -40,14 +54,8 @@ func (c component) purl() string {
 	}
 }
 
-type changedFile struct {
-	Filename, Patch string
-}
-
-func addRemediationsToPullRequest(token string, pull GithubPullRequest, remediations map[githubPullRequestFile]map[int64]component) error {
+func addRemediationComments(remediations componentRemediations, addComment addCommentFunc) error {
 	comment := func(c component) string {
-		var buf bytes.Buffer
-
 		var href string
 		switch c.format {
 		case "npm":
@@ -66,21 +74,25 @@ func addRemediationsToPullRequest(token string, pull GithubPullRequest, remediat
 			href = fmt.Sprintf("https://rubygems.org/gems/%s/versions/%s", c.name, c.version)
 		}
 
-		buf.WriteString("[Nexus Lifecycle](https://www.sonatype.com/product-nexus-lifecycle) has found that this version of `")
-		buf.WriteString(c.name)
-		buf.WriteString("` violates your company's policies.\n\n")
-		buf.WriteString("Lifecycle recommends using version [")
-		buf.WriteString(c.version)
-		buf.WriteString("](")
-		buf.WriteString(href)
-		buf.WriteString(") instead as it does not violate any policies.\n\n")
+		tmpl, err := template.New("comment").Parse(commentTmpl)
+		if err != nil {
+			log.Printf("%v\n", err)
+			return ""
+		}
 
-		return buf.String()
+		var comment bytes.Buffer
+		err = tmpl.Execute(&comment, struct{ Name, Version, Href string }{c.name, c.version, href})
+		if err != nil {
+			log.Printf("%v\n", err)
+			return ""
+		}
+
+		return comment.String()
 	}
 
 	for m, components := range remediations {
 		for pos, comp := range components {
-			err := addPullRequestComment(token, pull, pos, m.Filename, comment(comp))
+			err := addComment(m.Filename, pos, comment(comp))
 			if err != nil {
 				log.Printf("WARN: could not add comment: %s", err)
 			}
@@ -90,17 +102,7 @@ func addRemediationsToPullRequest(token string, pull GithubPullRequest, remediat
 	return nil
 }
 
-// ProcessPullRequestForRemediations will take a Github pull request and add any remediations if a manifest is found
-func ProcessPullRequestForRemediations(iq nexusiq.IQ, iqApp, token string, pull GithubPullRequest) error {
-	log.Printf("TRACE: Received Pull Request from: %s\n", pull.Repository.HTMLURL)
-
-	files, err := getPullRequestFiles(token, pull)
-	if err != nil {
-		log.Printf("ERROR: could not get files from pull request: %v\n", err)
-		return fmt.Errorf("could not get files from pull request: %v", err)
-	}
-	log.Printf("TRACE: Got %d files from pull request\n", len(files))
-
+func addRemediationsToRequest(iq nexusiq.IQ, iqApp string, files []changedFile, addComment addCommentFunc) error {
 	manifests, err := findComponentsFromManifest(files)
 	if err != nil {
 		log.Printf("ERROR: could not read files to find manifest: %v\n", err)
@@ -115,56 +117,10 @@ func ProcessPullRequestForRemediations(iq nexusiq.IQ, iqApp, token string, pull 
 	}
 	log.Printf("TRACE: retrieved %d remediations based on IQ app %s\n", len(remediations), iqApp)
 
-	if err = addRemediationsToPullRequest(token, pull, remediations); err != nil {
+	// if err = addRemediationsToPullRequest(token, pull, remediations); err != nil {
+	if err = addRemediationComments(remediations, addComment); err != nil {
 		return fmt.Errorf("could not add PR comments: %v", err)
 	}
 
 	return nil
-}
-
-// HandleGithubWebhookPullRequestEvent unmarshals a pull request event from Github and remediates if it is a new one
-func HandleGithubWebhookPullRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
-	var event GithubPullRequest
-	if err := json.Unmarshal(payload, &event); err != nil {
-		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
-	}
-
-	if event.Action != "opened" {
-		return http.StatusNoContent, fmt.Errorf("Only processing new pull requests")
-	}
-
-	if err := ProcessPullRequestForRemediations(iq, iqApp, token, event); err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("error: error handling pull request: %v", err)
-	}
-
-	return http.StatusOK, nil
-}
-
-// ProcessMergeRequestForRemediations will take a Gitlab merge request and add any remediations if a manifest is found
-func ProcessMergeRequestForRemediations(iq nexusiq.IQ, iqApp, token string, mr GitlabMergeRequest) error {
-	return nil
-}
-
-// HandleGitlabWebhookMergeRequestEvent unmarshals a merge request event from Gitlab and remediates if it is a new one
-func HandleGitlabWebhookMergeRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
-	var event gitlabMergeRequestWebhookEvent
-	if err := json.Unmarshal(payload, &event); err != nil {
-		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
-	}
-
-	if event.ObjectAttributes.State != "opened" {
-		return http.StatusNoContent, fmt.Errorf("Only processing new merge requests")
-	}
-
-	// TODO: get merge request from event
-	mr, err := getMergeRequest(token, event.Project.ID, event.ObjectAttributes.Iid)
-	if err != nil {
-		return http.StatusBadRequest, fmt.Errorf("could not find merge request: %v", err)
-	}
-
-	if err := ProcessMergeRequestForRemediations(iq, iqApp, token, mr); err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("error: error handling merge request: %v", err)
-	}
-
-	return http.StatusOK, nil
 }

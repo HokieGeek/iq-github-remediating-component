@@ -32,7 +32,7 @@ func httpreq(method, url string, payload io.Reader) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests map[githubPullRequestFile]map[int64]component) (map[githubPullRequestFile]map[int64]component, error) {
+func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests componentRemediations) (componentRemediations, error) {
 	asIQComponent := func(c component) (nexusiq.Component, error) {
 		// TODO: how bout errors and validation?
 		return nexusiq.Component{PackageURL: c.purl()}, nil
@@ -69,13 +69,13 @@ func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests 
 		return component{}, errors.New("nexusiq.Component not formatted well enough to parse")
 	}
 
-	remediations := make(map[githubPullRequestFile]map[int64]component)
+	remediations := make(componentRemediations)
 
 	for m, components := range manifests {
 		log.Printf("TRACE: evaluating manifest: %s\n", m.Filename)
-		remediated := make(map[int64]component)
+		remediated := make(map[changeLocation]component)
 		log.Printf("TRACE: manifest components: %v\n", components)
-		for p, c := range components {
+		for loc, c := range components {
 			iqcomponent, _ := asIQComponent(c)
 			log.Printf("TRACE: evaluating %s component for manifest %s: %v\n", nexusApplication, m.Filename, iqcomponent)
 
@@ -107,8 +107,8 @@ func getComponentRemediations(iq nexusiq.IQ, nexusApplication string, manifests 
 
 			// TODO: evaluate the component to determine what is wrong with it
 
-			log.Printf("TRACE: adding suggestion: %v[%d] = %v\n", iqcomponent, p, comp)
-			remediated[p] = comp
+			log.Printf("TRACE: adding suggestion: %v[%#v] = %v\n", iqcomponent, loc, comp)
+			remediated[loc] = comp
 		}
 
 		if len(remediated) > 0 {

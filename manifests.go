@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, format string, fields []string) (map[int64]component, error) {
-	converted := make(map[int64]component)
+func componentsSingleLineNameVersion(lines map[changeLocation]string, re *regexp.Regexp, format string, fields []string) (map[changeLocation]component, error) {
+	converted := make(map[changeLocation]component)
 
 	for p, l := range lines {
 		matches := re.FindAllStringSubmatch(l, -1)
@@ -32,27 +32,27 @@ func componentsSingleLineNameVersion(lines map[int64]string, re *regexp.Regexp, 
 	return converted, nil
 }
 
-func componentsFromNpm(lines map[int64]string) (map[int64]component, error) {
+func componentsFromNpm(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	re := regexp.MustCompile(`"([^"]*)": ".?([0-9]+(\.[0-9]+)+)",?`)
 	return componentsSingleLineNameVersion(lines, re, "npm", []string{"name", "version"})
 }
 
-func componentsFromNuget(lines map[int64]string) (map[int64]component, error) {
+func componentsFromNuget(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	re := regexp.MustCompile(`<package id="([^"]*)" version="([^"]*)"`)
 	return componentsSingleLineNameVersion(lines, re, "nuget", []string{"name", "version"})
 }
 
-func componentsFromPypi(lines map[int64]string) (map[int64]component, error) {
+func componentsFromPypi(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	re := regexp.MustCompile(`(.*)==([^\s#]*)`)
 	return componentsSingleLineNameVersion(lines, re, "pypi", []string{"name", "version"})
 }
 
-func componentsFromGomod(lines map[int64]string) (map[int64]component, error) {
+func componentsFromGomod(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	re := regexp.MustCompile(`^\s*([^\s]*)\s(v[0-9+](\.[0-9]+)+(-[-0-9a-z]+)?)(\s.*)?$`)
 	return componentsSingleLineNameVersion(lines, re, "golang", []string{"name", "version"})
 }
 
-func componentsFromRuby(lines map[int64]string) (map[int64]component, error) {
+func componentsFromRuby(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	re := regexp.MustCompile(`gem\s*'([^']*)',\s*'[><~=\s]*([0-9+](\.[0-9]+)+(\.[0-9a-z]+)?)'$`)
 	comps, err := componentsSingleLineNameVersion(lines, re, "ruby", []string{"name", "version"})
 
@@ -80,11 +80,11 @@ func componentsFromRuby(lines map[int64]string) (map[int64]component, error) {
 	return comps, err
 }
 
-func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
+func componentsFromGradle(lines map[changeLocation]string) (map[changeLocation]component, error) {
 	reOld := regexp.MustCompile(`^.*group:\s*'([^']*)',\s+name:\s*'([^']*)',\s+version:\s*'([^']*)'\s*$`)
 	reNew := regexp.MustCompile(`^[^\s(]*[\s(]["']([^:]*):([^:]*):([^:]*)["']\)?$`)
 	fields := []string{"group", "name", "version"}
-	components := make(map[int64]component)
+	components := make(map[changeLocation]component)
 	if comps, err := componentsSingleLineNameVersion(lines, reOld, "maven", fields); err == nil {
 		for k, v := range comps {
 			if _, ok := components[k]; !ok {
@@ -106,8 +106,8 @@ func componentsFromGradle(lines map[int64]string) (map[int64]component, error) {
 	return components, nil
 }
 
-func parsePatchLineAdditions(patch string) map[int64]string {
-	adds := make(map[int64]string)
+func parsePatchLineAdditions(patch string) map[changeLocation]string {
+	adds := make(map[changeLocation]string)
 
 	scanner := bufio.NewScanner(strings.NewReader(patch))
 	var position int64
@@ -117,7 +117,7 @@ func parsePatchLineAdditions(patch string) map[int64]string {
 		}
 
 		if scanner.Text()[0] == '+' {
-			adds[position] = scanner.Text()[1:]
+			adds[changeLocation{Position: position}] = scanner.Text()[1:]
 		}
 		position++
 	}
@@ -125,8 +125,8 @@ func parsePatchLineAdditions(patch string) map[int64]string {
 	return adds
 }
 
-func getMavenComponents(patch string) (map[int64]component, error) {
-	components := make(map[int64]component)
+func getMavenComponents(patch string) (map[changeLocation]component, error) {
+	components := make(map[changeLocation]component)
 
 	var (
 		position, p int64
@@ -142,7 +142,7 @@ func getMavenComponents(patch string) (map[int64]component, error) {
 		case strings.Contains(line, "</dependency>") || line[:2] == "@@":
 			if comp != nil && newVersion {
 				// fmt.Printf("(created): %q\n", *comp)
-				components[p] = *comp
+				components[changeLocation{Position: p}] = *comp
 			}
 			comp = nil
 		case strings.Contains(line, "<dependency>"):
@@ -172,16 +172,16 @@ func getMavenComponents(patch string) (map[int64]component, error) {
 	return components, nil
 }
 
-func findComponentsFromManifest(files []githubPullRequestFile) (map[githubPullRequestFile]map[int64]component, error) {
-	getComponents := func(patch string, linesToComponents func(lines map[int64]string) (map[int64]component, error)) (map[int64]component, error) {
+func findComponentsFromManifest(files []changedFile) (map[changedFile]map[changeLocation]component, error) {
+	getComponents := func(patch string, linesToComponents func(lines map[changeLocation]string) (map[changeLocation]component, error)) (map[changeLocation]component, error) {
 		additions := parsePatchLineAdditions(patch)
 		return linesToComponents(additions)
 	}
 
-	manifests := make(map[githubPullRequestFile]map[int64]component, 0)
+	manifests := make(map[changedFile]map[changeLocation]component, 0)
 
 	for _, f := range files {
-		components := make(map[int64]component)
+		components := make(map[changeLocation]component)
 		var err error
 		switch f.Filename {
 		case "pom.xml":

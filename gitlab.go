@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
 
 // GitlabMergeRequest defines the structure of a Gitlab merge request
@@ -234,7 +236,8 @@ type repository struct {
 	Homepage    string `json:"homepage"`
 }
 
-func req(method, url, token string, payload io.Reader) (*http.Response, error) {
+func glreq(method, endpoint, token string, payload io.Reader) (*http.Response, error) {
+	url := fmt.Sprintf("https://gitlab.com/api/v4/projects/%s", endpoint)
 	log.Printf("TRACE: req(%s, %s, %s, payload)", method, url, token)
 	request, err := http.NewRequest(method, url, payload)
 	if err != nil {
@@ -255,9 +258,39 @@ func req(method, url, token string, payload io.Reader) (*http.Response, error) {
 
 }
 
+func getMergeRequestFiles(token string, mr GitlabMergeRequest) ([]changedFile, error) {
+	endpoint := fmt.Sprintf("%d/merge_requests/%d/changes", mr.ProjectID, mr.Iid)
+	resp, err := ghreq(http.MethodGet, endpoint, token, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("did not get OK status: %s", resp.Status)
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var mrchanges GitlabMergeRequest
+	if err := json.Unmarshal(body, &mrchanges); err != nil {
+		return nil, err
+	}
+
+	files := make([]changedFile, len(mrchanges.Changes))
+	for i, f := range mrchanges.Changes {
+		files[i] = changedFile{Filename: f.NewPath, Patch: f.Diff}
+	}
+
+	return files, err
+}
+
 func getMergeRequest(token string, projectID, mrIID int64) (GitlabMergeRequest, error) {
-	url := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/merge_requests/%d", projectID, mrIID)
-	resp, err := req("GET", url, token, nil)
+	endpoint := fmt.Sprintf("%d/merge_requests/%d", projectID, mrIID)
+	resp, err := glreq("GET", endpoint, token, nil)
 	if err != nil {
 		return GitlabMergeRequest{}, err
 	}
@@ -278,7 +311,7 @@ func getMergeRequest(token string, projectID, mrIID int64) (GitlabMergeRequest, 
 	return mr, nil
 }
 
-func addMergeRequestComment(token string, mr GitlabMergeRequest, pos int64, path, comment string) {
+func addMergeRequestComment(token string, mr GitlabMergeRequest, line int64, path, comment string) error {
 	discussionReq := gitlabDiscussionRequest{
 		ID:              mr.ProjectID,
 		MergeRequestIID: mr.Iid,
@@ -290,25 +323,33 @@ func addMergeRequestComment(token string, mr GitlabMergeRequest, pos int64, path
 			StartSHA:     mr.DiffRefs.StartSHA,
 			OldPath:      path,
 			NewPath:      path,
-			OldLine:      pos,
+			OldLine:      line,
 		},
 	}
 
 	buf, err := json.Marshal(discussionReq)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("could not create request: %s", err)
 	}
 
 	fmt.Println(string(buf))
 
-	url := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/merge_requests/%d/discussions", mr.ProjectID, mr.Iid)
-	resp, err := req("POST", url, token, bytes.NewBuffer(buf))
+	endpoint := fmt.Sprintf("%d/merge_requests/%d/discussions", mr.ProjectID, mr.Iid)
+	resp, err := glreq(http.MethodPost, endpoint, token, bytes.NewBuffer(buf))
 	if err != nil {
-		panic(err)
+		log.Printf("ERROR: error creating comment: %s", err)
+		log.Printf("TRACE: %s", buf)
+		return fmt.Errorf("error creating comment: %s", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		log.Printf("ERROR: error creating comment. got status: %s", resp.Status)
+		log.Printf("TRACE: %s", buf)
+		return fmt.Errorf("error creating comment. got status: %s", resp.Status)
 	}
 
 	fmt.Printf("%#v\n", resp)
 
+	return nil
 }
 
 func getGitlabEventType(requestHeaders map[string]string) (string, error) {
@@ -335,4 +376,46 @@ func IsValidGitlabWebhookMergeRequestEvent(reqHeaders map[string]string) (bool, 
 	}
 
 	return true, http.StatusOK
+}
+
+// ProcessMergeRequestForRemediations will take a Gitlab merge request and add any remediations if a manifest is found
+func ProcessMergeRequestForRemediations(iq nexusiq.IQ, iqApp, token string, mr GitlabMergeRequest) error {
+	log.Printf("TRACE: Received Merge Request from: %s\n", mr.WebURL)
+
+	files, err := getMergeRequestFiles(token, mr)
+	if err != nil {
+		log.Printf("ERROR: could not get files from pull request: %v\n", err)
+		return fmt.Errorf("could not get files from pull request: %v", err)
+	}
+	log.Printf("TRACE: Got %d files from pull request\n", len(files))
+
+	if err = addRemediationsToRequest(iq, iqApp, files, func(filename string, location changeLocation, comment string) error {
+		return addMergeRequestComment(token, mr, location.Line, filename, comment)
+	}); err != nil {
+		return fmt.Errorf("could not add remediation comments to request: %v", err)
+	}
+	return nil
+}
+
+// HandleGitlabWebhookMergeRequestEvent unmarshals a merge request event from Gitlab and remediates if it is a new one
+func HandleGitlabWebhookMergeRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
+	var event gitlabMergeRequestWebhookEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
+	}
+
+	if event.ObjectAttributes.State != "opened" {
+		return http.StatusNoContent, fmt.Errorf("Only processing new merge requests")
+	}
+
+	mr, err := getMergeRequest(token, event.Project.ID, event.ObjectAttributes.Iid)
+	if err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not find merge request: %v", err)
+	}
+
+	if err := ProcessMergeRequestForRemediations(iq, iqApp, token, mr); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("error: error handling merge request: %v", err)
+	}
+
+	return http.StatusOK, nil
 }

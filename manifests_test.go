@@ -156,35 +156,35 @@ func TestParsePatchAdditions(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want map[int64]string
+		want map[changeLocation]string
 	}{
 		{
 			"npm",
 			args{dummyPatches["package.json"]},
-			map[int64]string{4: ` "chalk": "^1.0.0",`, 21: ` "moment": "^2.1.0",`},
+			map[changeLocation]string{changeLocation{Position: 4}: ` "chalk": "^1.0.0",`, changeLocation{Position: 21}: ` "moment": "^2.1.0",`},
 		},
 		{
 			"nuget",
 			args{dummyPatches["packages.config"]},
-			map[int64]string{6: ` <package id="LibGit2Sharp" version="0.20.0" targetFramework="net46" />`, 7: `</packages>`},
+			map[changeLocation]string{changeLocation{Position: 6}: ` <package id="LibGit2Sharp" version="0.20.0" targetFramework="net46" />`, changeLocation{Position: 7}: `</packages>`},
 		},
 		{
 			"pypi",
 			args{dummyPatches["requirements.txt"]},
-			map[int64]string{13: `jinja2==2.10 # via flask`, 21: `openpyxl==2.0.5`},
+			map[changeLocation]string{changeLocation{Position: 13}: `jinja2==2.10 # via flask`, changeLocation{Position: 21}: `openpyxl==2.0.5`},
 		},
 		{
 			"gradle",
 			args{dummyPatches["build.gradle"]},
-			map[int64]string{
-				4: ` compile group: 'axis', name: 'axis', version: '1.2.1'`,
-				9: ` compile group: 'commons-fileupload', name: 'commons-fileupload', version: '1.2.2'`,
+			map[changeLocation]string{
+				changeLocation{Position: 4}: ` compile group: 'axis', name: 'axis', version: '1.2.1'`,
+				changeLocation{Position: 9}: ` compile group: 'commons-fileupload', name: 'commons-fileupload', version: '1.2.2'`,
 			},
 		},
 		{
 			"ruby",
 			args{dummyPatches["Gemfile"]},
-			map[int64]string{5: `gem 'doorkeeper', '~> 4.3'`},
+			map[changeLocation]string{changeLocation{Position: 5}: `gem 'doorkeeper', '~> 4.3'`},
 		},
 	}
 	for _, tt := range tests {
@@ -205,17 +205,17 @@ func Test_getMavenComponents(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    map[int64]component
+		want    map[changeLocation]component
 		wantErr bool
 	}{
 		{
 			"maven",
 			args{dummyPatches["pom.xml"]},
-			map[int64]component{
-				5:  component{format: "maven", group: "axis", name: "axis", version: "1.2.1"},
-				14: component{format: "maven", group: "commons-fileupload", name: "commons-fileupload", version: "1.2.2"},
-				23: component{format: "maven", group: "commons-collections", name: "commons-collections", version: "3.0"},
-				34: component{format: "maven", group: "org.bouncycastle", name: "org.bouncycastle", version: "1.55"},
+			map[changeLocation]component{
+				changeLocation{Position: 5}:  component{format: "maven", group: "axis", name: "axis", version: "1.2.1"},
+				changeLocation{Position: 14}: component{format: "maven", group: "commons-fileupload", name: "commons-fileupload", version: "1.2.2"},
+				changeLocation{Position: 23}: component{format: "maven", group: "commons-collections", name: "commons-collections", version: "3.0"},
+				changeLocation{Position: 34}: component{format: "maven", group: "org.bouncycastle", name: "org.bouncycastle", version: "1.55"},
 			},
 			false,
 		},

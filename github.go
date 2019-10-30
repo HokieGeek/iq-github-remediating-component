@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	nexusiq "github.com/sonatype-nexus-community/gonexus/iq"
 )
 
 // GithubPullRequest defines the structure of a Github pull request
@@ -249,7 +251,7 @@ func ghreq(method, url, token string, payload io.Reader) (*http.Response, error)
 	return client.Do(request)
 }
 
-func getPullRequestFiles(token string, pull GithubPullRequest) ([]githubPullRequestFile, error) {
+func getPullRequestFiles(token string, pull GithubPullRequest) ([]changedFile, error) {
 	resp, err := ghreq(http.MethodGet, fmt.Sprintf("%s/files", pull.PullRequest.URL), token, nil)
 	if err != nil {
 		return nil, err
@@ -265,8 +267,15 @@ func getPullRequestFiles(token string, pull GithubPullRequest) ([]githubPullRequ
 		return nil, err
 	}
 
-	var files []githubPullRequestFile
-	err = json.Unmarshal(body, &files)
+	var ghfiles []githubPullRequestFile
+	if err := json.Unmarshal(body, &ghfiles); err != nil {
+		return nil, err
+	}
+
+	files := make([]changedFile, len(ghfiles))
+	for i, f := range ghfiles {
+		files[i] = changedFile{Filename: f.Filename, Patch: f.Patch}
+	}
 
 	return files, err
 }
@@ -287,10 +296,14 @@ func addPullRequestComment(token string, pull GithubPullRequest, position int64,
 
 	resp, err := ghreq(http.MethodPost, pull.PullRequest.ReviewCommentsURL, token, bytes.NewBuffer(buf))
 	if err != nil {
+		log.Printf("ERROR: error creating comment: %s", err)
+		log.Printf("TRACE: %s", buf)
 		return fmt.Errorf("error creating comment: %s", err)
 	}
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("error creating comment: %s", resp.Status)
+		log.Printf("ERROR: error creating comment. got status: %s", resp.Status)
+		log.Printf("TRACE: %s", buf)
+		return fmt.Errorf("error creating comment. got status: %s", resp.Status)
 	}
 
 	return nil
@@ -314,4 +327,42 @@ func IsValidGithubWebhookPullRequestEvent(reqHeaders map[string]string) (bool, i
 	}
 
 	return true, http.StatusOK
+}
+
+// ProcessPullRequestForRemediations will take a Github pull request and add any remediations if a manifest is found
+func ProcessPullRequestForRemediations(iq nexusiq.IQ, iqApp, token string, pull GithubPullRequest) error {
+	log.Printf("TRACE: Received Pull Request from: %s\n", pull.Repository.HTMLURL)
+
+	files, err := getPullRequestFiles(token, pull)
+	if err != nil {
+		log.Printf("ERROR: could not get files from pull request: %v\n", err)
+		return fmt.Errorf("could not get files from pull request: %v", err)
+	}
+	log.Printf("TRACE: Got %d files from pull request\n", len(files))
+
+	if err = addRemediationsToRequest(iq, iqApp, files, func(filename string, location changeLocation, comment string) error {
+		return addPullRequestComment(token, pull, location.Position, filename, comment)
+	}); err != nil {
+		return fmt.Errorf("could not add remediation comments to request: %v", err)
+	}
+
+	return nil
+}
+
+// HandleGithubWebhookPullRequestEvent unmarshals a pull request event from Github and remediates if it is a new one
+func HandleGithubWebhookPullRequestEvent(iq nexusiq.IQ, iqApp, token string, payload []byte) (int, error) {
+	var event GithubPullRequest
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("could not unmarshal payload as json: %v", err)
+	}
+
+	if event.Action != "opened" {
+		return http.StatusNoContent, fmt.Errorf("Only processing new pull requests")
+	}
+
+	if err := ProcessPullRequestForRemediations(iq, iqApp, token, event); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("error: error handling pull request: %v", err)
+	}
+
+	return http.StatusOK, nil
 }
