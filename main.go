@@ -33,7 +33,17 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 	}
 	log.Printf("TRACE: created client to IQ server as: %s\n", iqApp)
 
-	if supported, _ := IsValidGithubWebhookPullRequestEvent(req.Headers); supported {
+	// Github webhook comes in two parts.
+	// One is a ping to verify the connection
+	// The other is the actual event
+	supported, status := IsValidGithubWebhookPullRequestEvent(req.Headers)
+	switch {
+	case !supported && status == http.StatusOK:
+		return requestResponse(status, "Acknowledging ping"), nil
+	case !supported && status != http.StatusOK:
+		log.Println("WARN: Did not receive a valid Github webhook")
+		// We don't return here in case what we got was a Gitlab webhook
+	case supported:
 		status, err := HandleGithubWebhookPullRequestEvent(iq, iqApp, token, []byte(req.Body))
 		if err != nil {
 			log.Printf("ERROR: %v", err)
@@ -42,16 +52,19 @@ func handleLambdaEvent(req events.APIGatewayProxyRequest) (events.APIGatewayProx
 		return requestResponse(status, "Evaluating new Github pull request"), nil
 	}
 
-	if supported, _ := IsValidGitlabWebhookMergeRequestEvent(req.Headers); supported {
-		status, err := HandleGitlabWebhookMergeRequestEvent(iq, iqApp, token, []byte(req.Body))
-		if err != nil {
-			log.Printf("ERROR: %v", err)
-			return requestResponse(status, err.Error()), err
-		}
-		return requestResponse(status, "Evaluating new Gitlab merge request"), nil
+	// Gitlab's webhook event is simpler. Just need a quick binary check
+	supported, status = IsValidGitlabWebhookMergeRequestEvent(req.Headers)
+	if !supported {
+		log.Println("WARN: Did not receive a valid Gitlab webhook")
+		return requestResponse(status, "Did not receive a valid Gitlab webhook"), nil
 	}
 
-	return requestResponse(http.StatusNotFound, "Did not recognize webhook event"), nil
+	status, err = HandleGitlabWebhookMergeRequestEvent(iq, iqApp, token, []byte(req.Body))
+	if err != nil {
+		log.Printf("ERROR: %v", err)
+		return requestResponse(status, err.Error()), err
+	}
+	return requestResponse(status, "Evaluating new Gitlab merge request"), nil
 }
 
 func main() {

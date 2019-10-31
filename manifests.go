@@ -130,7 +130,7 @@ func parsePatchLineAdditions(patch string) map[changeLocation]string {
 			hunkLine--
 		case line[0] == '+':
 			adds[changeLocation{Position: position, Line: hunkLine}] = line[1:]
-		case line[:2] == "@@":
+		case len(line) > 1 && line[:2] == "@@":
 			match := reHunkStart.FindStringSubmatch(line)
 			hunkLine, _ = strconv.ParseInt(match[2], 10, 64)
 			hunkLine--
