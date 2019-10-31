@@ -260,7 +260,7 @@ func glreq(method, endpoint, token string, payload io.Reader) (*http.Response, e
 
 func getMergeRequestFiles(token string, mr GitlabMergeRequest) ([]changedFile, error) {
 	endpoint := fmt.Sprintf("%d/merge_requests/%d/changes", mr.ProjectID, mr.Iid)
-	resp, err := ghreq(http.MethodGet, endpoint, token, nil)
+	resp, err := glreq(http.MethodGet, endpoint, token, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func addMergeRequestComment(token string, mr GitlabMergeRequest, line int64, pat
 			StartSHA:     mr.DiffRefs.StartSHA,
 			OldPath:      path,
 			NewPath:      path,
-			OldLine:      line,
+			NewLine:      line,
 		},
 	}
 
@@ -384,10 +384,10 @@ func ProcessMergeRequestForRemediations(iq nexusiq.IQ, iqApp, token string, mr G
 
 	files, err := getMergeRequestFiles(token, mr)
 	if err != nil {
-		log.Printf("ERROR: could not get files from pull request: %v\n", err)
-		return fmt.Errorf("could not get files from pull request: %v", err)
+		log.Printf("ERROR: could not get files from merge request: %v\n", err)
+		return fmt.Errorf("could not get files from merge request: %v", err)
 	}
-	log.Printf("TRACE: Got %d files from pull request\n", len(files))
+	log.Printf("TRACE: Got %d files from merge request\n", len(files))
 
 	if err = addRemediationsToRequest(iq, iqApp, files, func(filename string, location changeLocation, comment string) error {
 		return addMergeRequestComment(token, mr, location.Line, filename, comment)
