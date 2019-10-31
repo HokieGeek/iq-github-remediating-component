@@ -107,12 +107,16 @@ func componentsFromGradle(lines map[changeLocation]string) (map[changeLocation]c
 	return components, nil
 }
 
+func parseHunkStart(line string) []string {
+	reHunkStart := regexp.MustCompile(`@@ -([0-9]+),[0-9]+ \+([0-9]+),[0-9]+ @@`)
+	return reHunkStart.FindStringSubmatch(line)
+}
+
 func parsePatchLineAdditions(patch string) map[changeLocation]string {
 	// log.Println(patch)
 	adds := make(map[changeLocation]string)
 
 	scanner := bufio.NewScanner(strings.NewReader(patch))
-	reHunkStart := regexp.MustCompile(`@@ -([0-9]+),[0-9]+ \+([0-9]+),[0-9]+ @@`)
 	var position, hunkLine int64
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -131,7 +135,7 @@ func parsePatchLineAdditions(patch string) map[changeLocation]string {
 		case line[0] == '+':
 			adds[changeLocation{Position: position, Line: hunkLine}] = line[1:]
 		case len(line) > 1 && line[:2] == "@@":
-			match := reHunkStart.FindStringSubmatch(line)
+			match := parseHunkStart(line)
 			hunkLine, _ = strconv.ParseInt(match[2], 10, 64)
 			hunkLine--
 		}
@@ -142,13 +146,13 @@ func parsePatchLineAdditions(patch string) map[changeLocation]string {
 	return adds
 }
 
-func getMavenComponents(patch string) (map[changeLocation]component, error) {
+func getPomComponents(patch string) (map[changeLocation]component, error) {
 	components := make(map[changeLocation]component)
 
 	var (
-		position, p int64
-		comp        *component
-		newVersion  bool
+		position, hunkLine, verPos, verLine int64
+		comp                                *component
+		newVersion                          bool
 	)
 	scanner := bufio.NewScanner(strings.NewReader(patch))
 	tag := regexp.MustCompile(`<([^>]*)>([^<]*)</.*`)
@@ -156,10 +160,17 @@ func getMavenComponents(patch string) (map[changeLocation]component, error) {
 		line := scanner.Text()
 		// fmt.Printf("%s::: ", line)
 		switch {
-		case strings.Contains(line, "</dependency>") || line[:2] == "@@":
+		case line[0] == '-':
+			hunkLine--
+		case len(line) > 1 && line[:2] == "@@":
+			match := parseHunkStart(line)
+			hunkLine, _ = strconv.ParseInt(match[2], 10, 64)
+			hunkLine--
+			fallthrough
+		case strings.Contains(line, "</dependency>"):
 			if comp != nil && newVersion {
 				// fmt.Printf("(created): %q\n", *comp)
-				components[changeLocation{Position: p}] = *comp
+				components[changeLocation{Position: verPos, Line: verLine}] = *comp
 			}
 			comp = nil
 		case strings.Contains(line, "<dependency>"):
@@ -178,12 +189,14 @@ func getMavenComponents(patch string) (map[changeLocation]component, error) {
 					comp.name = v
 				case "version":
 					newVersion = line[0] == '+'
-					p = position
+					verPos = position
+					verLine = hunkLine
 					comp.version = v
 				}
 			}
 		}
 		position++
+		hunkLine++
 	}
 
 	return components, nil
@@ -202,7 +215,7 @@ func findComponentsFromManifest(files []changedFile) (map[changedFile]map[change
 		var err error
 		switch f.Filename {
 		case "pom.xml":
-			components, err = getMavenComponents(f.Patch)
+			components, err = getPomComponents(f.Patch)
 		case "build.gradle":
 			components, err = getComponents(f.Patch, componentsFromGradle)
 		case "package.json":

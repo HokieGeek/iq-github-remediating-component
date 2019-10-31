@@ -210,7 +210,7 @@ func TestParsePatchAdditions(t *testing.T) {
 	}
 }
 
-func Test_getMavenComponents(t *testing.T) {
+func Test_getPomComponents(t *testing.T) {
 	type args struct {
 		patch string
 	}
@@ -234,7 +234,7 @@ func Test_getMavenComponents(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getMavenComponents(tt.args.patch)
+			got, err := getPomComponents(tt.args.patch)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getMavenComponents() error = %v, wantErr %v", err, tt.wantErr)
 				return
